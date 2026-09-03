@@ -31,7 +31,6 @@ import {
   Settings,
   PanelLeftClose,
   PanelLeftOpen,
-  ListTree,
   WalletCards,
   Trash2,
   X,
@@ -48,13 +47,15 @@ import {
   inr,
   itemBaseRate,
   itemMeasure,
-  itemOriginalTotal,
+  itemReferenceRate,
+  itemSavings,
   itemTotal,
   quoteTotals,
   roomTotal,
 } from '@/domain/pricing';
 import type {
   FirmSettings,
+  FeeMethod,
   MeasurementType,
   Project,
   QuoteItem,
@@ -104,10 +105,21 @@ function useStore(): Store {
   useEffect(() => {
     const savedProjects = projectRepository.list([]);
     const initialProjects = savedProjects.length
-      ? savedProjects
+      ? savedProjects.map((project) =>
+          project.propertyName === 'Sharma Residence'
+            ? {
+                ...project,
+                fees: project.fees.map((fee) =>
+                  fee.name === 'Design Fee' && fee.discount === 20000
+                    ? { ...fee, discount: 0 }
+                    : fee,
+                ),
+              }
+            : project,
+        )
       : [sampleProject];
     sp(initialProjects);
-    if (!savedProjects.length) projectRepository.saveAll(initialProjects);
+    projectRepository.saveAll(initialProjects);
     const savedRates = rateCardRepository.list([]);
     const initialRates = savedRates.length ? savedRates : dr;
     sr(initialRates);
@@ -591,7 +603,6 @@ async function exportProjectExcel(project: Project, settings: FirmSettings) {
       fee.total,
     ]),
     ['Subtotal', '', '', '', '', '', totals.subtotal],
-    ['Project Discount', '', '', '', '', '', -totals.discount],
     ['GRAND TOTAL', '', '', '', '', '', totals.grandTotal],
     [],
     [settings.quotationNotes],
@@ -726,7 +737,7 @@ async function exportProjectExcel(project: Project, settings: FirmSettings) {
           sz: r === summaryStart + 6 ? 13 : 10,
           bold:
             r === summaryStart ||
-            r === summaryStart + 4 ||
+            r === summaryStart + 5 ||
             r === summaryStart + 6,
           color: { rgb: r === summaryStart ? 'FFFFFF' : deep },
         },
@@ -827,26 +838,25 @@ function Builder({ s }: { s: Store }) {
             sqft
           </p>
         </div>
-        <div>
-          <Button variant="outline" size="lg" onClick={() => setCompare(true)}>
-            <BarChart3 />
-            Compare tiers
-          </Button>
-          <Button variant="outline" size="lg" onClick={saveRev}>
+        <div className="project-workflow">
+          <nav className="project-tabs" aria-label="Quotation workflow">
+            <button className="active">Builder</button>
+            <button onClick={() => setCompare(true)}>
+              <BarChart3 />
+              Compare
+            </button>
+            <button onClick={() => go(`/projects/${id}/revisions`)}>
+              <FileClock />
+              Revisions
+            </button>
+            <button onClick={() => go(`/projects/${id}/preview`)}>
+              <ReceiptText />
+              Preview
+            </button>
+          </nav>
+          <Button variant="outline" className="save-revision" onClick={saveRev}>
             <Save />
             Save revision
-          </Button>
-          <Button
-            variant="outline"
-            size="lg"
-            onClick={() => go(`/projects/${id}/revisions`)}
-          >
-            <FileClock />
-            History
-          </Button>
-          <Button size="lg" onClick={() => go(`/projects/${id}/preview`)}>
-            <ReceiptText />
-            Preview
           </Button>
           <div className="project-actions-wrap">
             <Button
@@ -976,14 +986,17 @@ function Builder({ s }: { s: Store }) {
           {room ? (
             <>
               <div className="workspace-controls">
-                <Button
-                  variant="outline"
-                  onClick={() => setRoomsOpen((value) => !value)}
-                  aria-pressed={roomsOpen}
-                >
-                  <ListTree />
-                  {roomsOpen ? 'Hide rooms' : 'Rooms'}
-                </Button>
+                {!roomsOpen && (
+                  <Button
+                    className="rooms-reopen"
+                    variant="ghost"
+                    onClick={() => setRoomsOpen(true)}
+                    aria-label="Show rooms"
+                  >
+                    <PanelLeftOpen />
+                    Rooms
+                  </Button>
+                )}
                 <span>
                   {room.items.filter((item) => item.enabled).length} of{' '}
                   {room.items.length} components enabled
@@ -1309,8 +1322,14 @@ function Item({
   const [more, setMore] = useState(false),
     menuRef = useRef<HTMLDivElement>(null),
     rate = itemBaseRate(item, p.defaultTier),
-    original = itemOriginalTotal(item, p.defaultTier),
-    total = itemTotal(item, p.defaultTier);
+    referenceRate = itemReferenceRate(item, p.defaultTier),
+    original =
+      itemMeasure(item) * referenceRate +
+      item.subUnits
+        .filter((subUnit) => subUnit.enabled)
+        .reduce((sum, subUnit) => sum + subUnit.rate, 0),
+    total = itemTotal(item, p.defaultTier),
+    savings = itemSavings(item, p.defaultTier);
   useEffect(() => {
     if (!more) return;
     const close = (event: PointerEvent) => {
@@ -1335,9 +1354,9 @@ function Item({
         </div>
         <span className="item-total">
           <strong>{inr(total)}</strong>
-          {item.discount > 0 && (
+          {savings > 0 && (
             <small>
-              <s>{inr(original)}</s> · saved {inr(item.discount)}
+              <s>{inr(original)}</s> · save {inr(savings)}
             </small>
           )}
         </span>
@@ -1522,7 +1541,7 @@ function Item({
               </select>
             </label>
             <label>
-              Rate / {item.measurementType}
+              Project rate / {item.measurementType}
               <Num value={rate} onChange={(v) => patch({ rateOverride: v })} />
             </label>
             <label>
@@ -1537,6 +1556,34 @@ function Item({
               × {inr(rate)}
             </div>
           </div>
+          <label className="item-notes">
+            Notes
+            <textarea
+              value={item.notes}
+              placeholder="Installation, finish or scope notes"
+              onChange={(event) => patch({ notes: event.target.value })}
+            />
+          </label>
+          {item.rateOverride !== undefined &&
+            item.rateOverride < referenceRate && (
+              <div className="rate-saving">
+                <span>
+                  Original rate{' '}
+                  <strong>
+                    {inr(referenceRate)} / {item.measurementType}
+                  </strong>
+                </span>
+                <span>
+                  Project rate{' '}
+                  <strong>
+                    {inr(item.rateOverride)} / {item.measurementType}
+                  </strong>
+                </span>
+                <span>
+                  You save <strong>{inr(savings)}</strong>
+                </span>
+              </div>
+            )}
           {(item.rateOverride !== undefined || item.tierOverride) && (
             <p className="override">
               Project-specific override · global rate card unchanged
@@ -1591,38 +1638,54 @@ function Summary({
             <X />
           </button>
         </div>
+        <span>FINAL TOTAL</span>
         <h2>{inr(t.grandTotal)}</h2>
-        <p>Live total · {tl(p.defaultTier)}</p>
+        {t.savings > 0 && (
+          <p className="total-savings">You saved {inr(t.savings)}</p>
+        )}
       </header>
-      <div>
-        {<Line label="Interior work" value={t.interior} />}{' '}
-        {t.fees.map((f) => (
+      <div className="room-breakdown">
+        {p.rooms.map((room) => (
           <Line
-            key={f.id}
-            label={f.name}
-            value={f.total}
-            note={
-              f.original > f.total
-                ? `Discount -${inr(f.original - f.total)}`
-                : undefined
-            }
+            key={room.id}
+            label={room.name}
+            value={roomTotal(room, p.defaultTier)}
           />
         ))}
       </div>
-      <section>
-        <Line label="Subtotal" value={t.subtotal} />
+      <section className="summary-totals">
+        <Line label="Order total" value={t.interior} />
+        {t.fees.map((fee) => (
+          <Line
+            key={fee.id}
+            label={fee.name}
+            value={fee.total}
+            note={
+              fee.method === 'sqft'
+                ? `${inr(fee.value)}/sqft`
+                : fee.method === 'percentage'
+                  ? `${fee.value}% of interior work`
+                  : 'Custom amount'
+            }
+          />
+        ))}
+      </section>
+      <details className="quotation-adjustments">
+        <summary>Quotation adjustments</summary>
         <label>
-          Project discount
+          Flat discount{' '}
           <Num
             value={p.projectDiscount}
-            onChange={(v) => update((q) => ({ ...q, projectDiscount: v }))}
+            onChange={(value) =>
+              update((project) => ({ ...project, projectDiscount: value }))
+            }
           />
         </label>
-      </section>
+        <small>Kept internal and not itemised on the client quotation.</small>
+      </details>
       <footer>
-        <span>GRAND TOTAL</span>
+        <span>Grand total</span>
         <strong>{inr(t.grandTotal)}</strong>
-        <small>Including configured fees</small>
       </footer>
     </aside>
   );
@@ -1765,7 +1828,6 @@ function Preview({ s }: { s: Store }) {
           <div>
             <Line label="Interior work" value={t.interior} />
             <Line label="Subtotal" value={t.subtotal} />
-            <Line label="Project discount" value={-t.discount} />
             <p>
               <span>GRAND TOTAL</span>
               <strong>{inr(t.grandTotal)}</strong>
@@ -1977,31 +2039,111 @@ function RateCard({ s }: { s: Store }) {
   );
 }
 function Fees({ s }: { s: Store }) {
+  const [projectId, setProjectId] = useState(s.projects[0]?.id ?? '');
+  const project =
+    s.projects.find((item) => item.id === projectId) ?? s.projects[0];
+  const patchFee = (
+    feeId: string,
+    patch: {
+      method?: FeeMethod;
+      value?: number;
+      discount?: number;
+      enabled?: boolean;
+    },
+  ) => {
+    if (!project) return;
+    s.setProjects(
+      s.projects.map((item) =>
+        item.id === project.id
+          ? {
+              ...item,
+              updatedAt: new Date().toISOString(),
+              fees: item.fees.map((fee) =>
+                fee.id === feeId ? { ...fee, ...patch } : fee,
+              ),
+            }
+          : item,
+      ),
+    );
+  };
   return (
     <Page
       title="Fee structure"
       sub="Configure each project with per-square-foot, percentage, or flat professional fees."
     >
-      <div className="fee-grid">
-        <article>
-          <CircleDollarSign />
-          <h2>Flexible fee engine</h2>
-          <p>
-            Design, drawings and supervision can each use a different
-            calculation method and explicit discount.
-          </p>
-        </article>
-        {(s.projects[0]?.fees ?? []).map((f) => (
-          <article key={f.id}>
-            <span>{f.name}</span>
-            <strong>
-              {f.method === 'sqft'
-                ? `${inr(f.value)} / sqft`
-                : f.method === 'percentage'
-                  ? `${f.value}%`
-                  : inr(f.value)}
-            </strong>
-            <small>Demo project configuration</small>
+      <section className="fee-project-bar panel">
+        <label>
+          Project
+          <select
+            value={project?.id ?? ''}
+            onChange={(event) => setProjectId(event.target.value)}
+          >
+            {s.projects.map((item) => (
+              <option value={item.id} key={item.id}>
+                {item.propertyName}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span>Fees update this quotation immediately.</span>
+      </section>
+      <div className="fee-editor-grid">
+        {(project?.fees ?? []).map((fee) => (
+          <article key={fee.id}>
+            <header>
+              <div>
+                <small>PROFESSIONAL FEE</small>
+                <h2>{fee.name}</h2>
+              </div>
+              <Switch
+                checked={fee.enabled}
+                onCheckedChange={(enabled) => patchFee(fee.id, { enabled })}
+              />
+            </header>
+            <label>
+              Calculation
+              <select
+                value={fee.method}
+                onChange={(event) =>
+                  patchFee(fee.id, { method: event.target.value as FeeMethod })
+                }
+              >
+                <option value="flat">Custom / Flat amount</option>
+                <option value="percentage">Percentage</option>
+                <option value="sqft">Per square foot</option>
+              </select>
+            </label>
+            <label>
+              {fee.method === 'flat'
+                ? 'Amount'
+                : fee.method === 'percentage'
+                  ? 'Percentage'
+                  : 'Rate per sqft'}
+              <div className="fee-value">
+                <span>{fee.method === 'percentage' ? '%' : '₹'}</span>
+                <Num
+                  value={fee.value}
+                  onChange={(value) => patchFee(fee.id, { value })}
+                />
+                <b>{fee.method === 'sqft' ? '/ sqft' : ''}</b>
+              </div>
+            </label>
+            <label className="fee-discount">
+              Fee discount{' '}
+              <Num
+                value={fee.discount}
+                onChange={(discount) => patchFee(fee.id, { discount })}
+              />
+            </label>
+            <footer>
+              <span>Current quotation</span>
+              <strong>
+                {inr(
+                  quoteTotals(project).fees.find((item) => item.id === fee.id)
+                    ?.total ?? 0,
+                )}
+              </strong>
+            </footer>
           </article>
         ))}
       </div>
