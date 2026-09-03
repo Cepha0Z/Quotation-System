@@ -220,7 +220,6 @@ function Shell({ s }: { s: Store }) {
             <strong>Interix Studio</strong>
           </div>
           <span className="saved">● Saved locally</span>
-          <NewProject s={s} />
         </header>
         <Routes>
           <Route path="/dashboard" element={<Dashboard s={s} />} />
@@ -838,22 +837,7 @@ function Builder({ s }: { s: Store }) {
             sqft
           </p>
         </div>
-        <div className="project-workflow">
-          <nav className="project-tabs" aria-label="Quotation workflow">
-            <button className="active">Builder</button>
-            <button onClick={() => setCompare(true)}>
-              <BarChart3 />
-              Compare
-            </button>
-            <button onClick={() => go(`/projects/${id}/revisions`)}>
-              <FileClock />
-              Revisions
-            </button>
-            <button onClick={() => go(`/projects/${id}/preview`)}>
-              <ReceiptText />
-              Preview
-            </button>
-          </nav>
+        <div className="builder-actions">
           <Button variant="outline" className="save-revision" onClick={saveRev}>
             <Save />
             Save revision
@@ -861,14 +845,34 @@ function Builder({ s }: { s: Store }) {
           <div className="project-actions-wrap">
             <Button
               variant="outline"
+              size="icon-lg"
+              className="project-more"
               onClick={() => setProjectActions((value) => !value)}
               aria-label="Project actions"
+              title="Project actions"
             >
               <MoreHorizontal />
-              <span>More</span>
             </Button>
             {projectActions && (
               <div className="context-menu project-menu">
+                <button
+                  onClick={() => {
+                    setProjectActions(false);
+                    setCompare(true);
+                  }}
+                >
+                  <BarChart3 />
+                  Compare tiers
+                </button>
+                <button onClick={() => go(`/projects/${id}/revisions`)}>
+                  <FileClock />
+                  Revision history
+                </button>
+                <button onClick={() => go(`/projects/${id}/preview`)}>
+                  <ReceiptText />
+                  Quotation preview
+                </button>
+                <span />
                 <button
                   onClick={() => {
                     const name = prompt('Rename project', p.propertyName);
