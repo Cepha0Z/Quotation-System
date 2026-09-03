@@ -13,6 +13,7 @@ import {
   BarChart3,
   BriefcaseBusiness,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   CircleDollarSign,
   ClipboardList,
@@ -838,6 +839,16 @@ function Builder({ s }: { s: Store }) {
           </p>
         </div>
         <div className="builder-actions">
+          <nav className="project-links" aria-label="Quotation workflow">
+            <span>Builder</span>
+            <button onClick={() => setCompare(true)}>Compare</button>
+            <button onClick={() => go(`/projects/${id}/revisions`)}>
+              Revisions
+            </button>
+            <button onClick={() => go(`/projects/${id}/preview`)}>
+              Preview
+            </button>
+          </nav>
           <Button variant="outline" className="save-revision" onClick={saveRev}>
             <Save />
             Save revision
@@ -950,6 +961,7 @@ function Builder({ s }: { s: Store }) {
                   </small>
                 </span>
                 <b>{inr(roomTotal(r, p.defaultTier))}</b>
+                <ChevronRight className="room-chevron" />
               </button>
               <div>
                 <button
@@ -1017,102 +1029,110 @@ function Builder({ s }: { s: Store }) {
                   {summaryOpen ? <X /> : <WalletCards />}
                 </Button>
               </div>
-              <header>
-                <div>
-                  <small>SELECTED ROOM</small>
-                  <h2>{room.name}</h2>
+              <section className="room-workspace">
+                <header>
+                  <div>
+                    <small>SELECTED ROOM</small>
+                    <h2>{room.name}</h2>
+                  </div>
+                  <span>
+                    <strong>{inr(roomTotal(room, p.defaultTier))}</strong>
+                    <small>Room total</small>
+                  </span>
+                </header>
+                <div className="room-components">
+                  {room.items.map((item, i) => (
+                    <Item
+                      key={item.id}
+                      item={item}
+                      p={p}
+                      currentRoomId={room.id}
+                      editing={editingItemId === item.id}
+                      setEditing={(value) =>
+                        setEditingItemId(value ? item.id : null)
+                      }
+                      patch={(x) => patchItem(item.id, x)}
+                      duplicate={() =>
+                        update((q) => ({
+                          ...q,
+                          rooms: q.rooms.map((r) =>
+                            r.id === room.id
+                              ? {
+                                  ...r,
+                                  items: [
+                                    ...r.items,
+                                    {
+                                      ...structuredClone(item),
+                                      id: uid(),
+                                      name: item.name + ' copy',
+                                    },
+                                  ],
+                                }
+                              : r,
+                          ),
+                        }))
+                      }
+                      remove={() =>
+                        update((q) => ({
+                          ...q,
+                          rooms: q.rooms.map((r) =>
+                            r.id === room.id
+                              ? {
+                                  ...r,
+                                  items: r.items.filter(
+                                    (x) => x.id !== item.id,
+                                  ),
+                                }
+                              : r,
+                          ),
+                        }))
+                      }
+                      move={(dest) =>
+                        update((q) => ({
+                          ...q,
+                          rooms: q.rooms.map((r) =>
+                            r.id === room.id
+                              ? {
+                                  ...r,
+                                  items: r.items.filter(
+                                    (x) => x.id !== item.id,
+                                  ),
+                                }
+                              : r.id === dest
+                                ? {
+                                    ...r,
+                                    items: [...r.items, structuredClone(item)],
+                                  }
+                                : r,
+                          ),
+                        }))
+                      }
+                      order={(d) =>
+                        update((q) => ({
+                          ...q,
+                          rooms: q.rooms.map((r) => {
+                            if (r.id !== room.id) return r;
+                            const a = [...r.items],
+                              j = i + d;
+                            if (j < 0 || j >= a.length) return r;
+                            [a[i], a[j]] = [a[j], a[i]];
+                            return { ...r, items: a };
+                          }),
+                        }))
+                      }
+                    />
+                  ))}
+                  <Button
+                    className="add-item"
+                    variant="outline"
+                    size="lg"
+                    onClick={() => setItemModal(true)}
+                  >
+                    <Plus />
+                    Add item to {room.name}
+                  </Button>
                 </div>
-                <span>
-                  <strong>{inr(roomTotal(room, p.defaultTier))}</strong>
-                  <small>Room total</small>
-                </span>
-              </header>
-              {room.items.map((item, i) => (
-                <Item
-                  key={item.id}
-                  item={item}
-                  p={p}
-                  currentRoomId={room.id}
-                  editing={editingItemId === item.id}
-                  setEditing={(value) =>
-                    setEditingItemId(value ? item.id : null)
-                  }
-                  patch={(x) => patchItem(item.id, x)}
-                  duplicate={() =>
-                    update((q) => ({
-                      ...q,
-                      rooms: q.rooms.map((r) =>
-                        r.id === room.id
-                          ? {
-                              ...r,
-                              items: [
-                                ...r.items,
-                                {
-                                  ...structuredClone(item),
-                                  id: uid(),
-                                  name: item.name + ' copy',
-                                },
-                              ],
-                            }
-                          : r,
-                      ),
-                    }))
-                  }
-                  remove={() =>
-                    update((q) => ({
-                      ...q,
-                      rooms: q.rooms.map((r) =>
-                        r.id === room.id
-                          ? {
-                              ...r,
-                              items: r.items.filter((x) => x.id !== item.id),
-                            }
-                          : r,
-                      ),
-                    }))
-                  }
-                  move={(dest) =>
-                    update((q) => ({
-                      ...q,
-                      rooms: q.rooms.map((r) =>
-                        r.id === room.id
-                          ? {
-                              ...r,
-                              items: r.items.filter((x) => x.id !== item.id),
-                            }
-                          : r.id === dest
-                            ? {
-                                ...r,
-                                items: [...r.items, structuredClone(item)],
-                              }
-                            : r,
-                      ),
-                    }))
-                  }
-                  order={(d) =>
-                    update((q) => ({
-                      ...q,
-                      rooms: q.rooms.map((r) => {
-                        if (r.id !== room.id) return r;
-                        const a = [...r.items],
-                          j = i + d;
-                        if (j < 0 || j >= a.length) return r;
-                        [a[i], a[j]] = [a[j], a[i]];
-                        return { ...r, items: a };
-                      }),
-                    }))
-                  }
-                />
-              ))}
-              <Button
-                className="add-item"
-                variant="outline"
-                size="lg"
-                onClick={() => setItemModal(true)}
-              >
-                <Plus />
-                Add item to {room.name}
-              </Button>
+              </section>
             </>
           ) : (
             <div className="empty">
@@ -1130,6 +1150,8 @@ function Builder({ s }: { s: Store }) {
           update={update}
           open={summaryOpen}
           close={() => setSummaryOpen(false)}
+          preview={() => go(`/projects/${id}/preview`)}
+          download={() => void exportProjectExcel(p, s.settings)}
         />
       </div>
       {roomModal && (
@@ -1629,11 +1651,15 @@ function Summary({
   update,
   open,
   close,
+  preview,
+  download,
 }: {
   p: Project;
   update: (f: (p: Project) => Project) => void;
   open: boolean;
   close: () => void;
+  preview: () => void;
+  download: () => void;
 }) {
   const t = quoteTotals(p);
   return (
@@ -1694,6 +1720,16 @@ function Summary({
         <span>Grand total</span>
         <strong>{inr(t.grandTotal)}</strong>
       </footer>
+      <div className="summary-actions">
+        <Button variant="outline" onClick={preview}>
+          <ReceiptText />
+          View full quotation
+        </Button>
+        <Button variant="ghost" onClick={download}>
+          <Download />
+          Download summary
+        </Button>
+      </div>
     </aside>
   );
 }
