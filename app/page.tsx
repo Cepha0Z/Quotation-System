@@ -175,6 +175,14 @@ function Shell({ s }: { s: Store }) {
             <strong>INTERIX</strong>
             <small>Quotation Studio</small>
           </span>
+          <button
+            className="nav-collapse"
+            onClick={() => setCollapsed((value) => !value)}
+            aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+            title={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+          >
+            {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+          </button>
           <button className="mobile-nav-close" onClick={() => setOpen(false)}>
             <X />
           </button>
@@ -201,14 +209,6 @@ function Shell({ s }: { s: Store }) {
             <small>Local workspace</small>
           </span>
         </div>
-        <button
-          className="nav-collapse"
-          onClick={() => setCollapsed((value) => !value)}
-          aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
-        >
-          {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
-          <span>{collapsed ? 'Expand' : 'Collapse navigation'}</span>
-        </button>
       </aside>
       <div className="main">
         <header className="topbar">
@@ -1002,12 +1002,15 @@ function Builder({ s }: { s: Store }) {
                   {room.items.length} components enabled
                 </span>
                 <Button
-                  variant="outline"
+                  className="summary-toggle"
+                  variant="ghost"
+                  size="icon-lg"
                   onClick={() => setSummaryOpen((value) => !value)}
                   aria-pressed={summaryOpen}
+                  aria-label={summaryOpen ? 'Hide summary' : 'Show summary'}
+                  title={summaryOpen ? 'Hide summary' : 'Show summary'}
                 >
-                  <WalletCards />
-                  {summaryOpen ? 'Hide summary' : 'Summary'}
+                  {summaryOpen ? <X /> : <WalletCards />}
                 </Button>
               </div>
               <header>
