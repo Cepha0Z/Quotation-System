@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   HashRouter,
   Navigate,
@@ -17,11 +17,13 @@ import {
   CircleDollarSign,
   ClipboardList,
   Copy,
+  Download,
   FileClock,
   FileSpreadsheet,
   Gauge,
   Menu,
   MoreHorizontal,
+  Pencil,
   Plus,
   Printer,
   ReceiptText,
@@ -518,6 +520,250 @@ const fresh = (r?: RateCardItem): QuoteItem => ({
   notes: '',
   subUnits: r?.subUnits ?? [],
 });
+
+async function exportProjectExcel(project: Project, settings: FirmSettings) {
+  const X = await import('xlsx-js-style');
+  const totals = quoteTotals(project);
+  const rows: (string | number)[][] = [
+    [settings.letterheadName],
+    [settings.address],
+    [],
+    [`QUOTATION FOR ${project.clientName.toUpperCase()}`],
+    [
+      `${project.propertyName}  ·  ${project.layout}  ·  ${project.carpetArea.toLocaleString('en-IN')} sqft  ·  ${tl(project.defaultTier)}`,
+    ],
+    [
+      `Quotation date: ${new Date().toLocaleDateString('en-IN')}  ·  Reference: QT-${project.id.slice(0, 6).toUpperCase()}`,
+    ],
+    [],
+  ];
+  const roomHeaderRows: number[] = [],
+    tableHeaderRows: number[] = [],
+    moneyRows: number[] = [];
+  project.rooms.forEach((room) => {
+    roomHeaderRows.push(rows.length);
+    rows.push([
+      room.name.toUpperCase(),
+      '',
+      '',
+      '',
+      '',
+      '',
+      roomTotal(room, project.defaultTier),
+    ]);
+    tableHeaderRows.push(rows.length);
+    rows.push([
+      'Item',
+      'Description',
+      'Measurement',
+      'Tier',
+      'Rate',
+      'Discount',
+      'Total',
+    ]);
+    room.items
+      .filter((item) => item.enabled)
+      .forEach((item) => {
+        moneyRows.push(rows.length);
+        rows.push([
+          item.name,
+          item.description,
+          `${itemMeasure(item).toLocaleString('en-IN')} ${item.measurementType}`,
+          tl(item.tierOverride ?? project.defaultTier),
+          itemBaseRate(item, project.defaultTier),
+          item.discount ? -item.discount : 0,
+          itemTotal(item, project.defaultTier),
+        ]);
+      });
+    rows.push([]);
+  });
+  const summaryStart = rows.length;
+  rows.push(
+    ['FINANCIAL SUMMARY'],
+    ['Interior Work', '', '', '', '', '', totals.interior],
+    ...totals.fees.map((fee) => [
+      fee.name,
+      '',
+      '',
+      '',
+      '',
+      fee.original - fee.total ? -(fee.original - fee.total) : '',
+      fee.total,
+    ]),
+    ['Subtotal', '', '', '', '', '', totals.subtotal],
+    ['Project Discount', '', '', '', '', '', -totals.discount],
+    ['GRAND TOTAL', '', '', '', '', '', totals.grandTotal],
+    [],
+    [settings.quotationNotes],
+    [settings.terms],
+  );
+  const ws = X.utils.aoa_to_sheet(rows);
+  const deep = '173A31',
+    warm = 'F4F1EA',
+    line = 'D9DDD8',
+    accent = 'B77850',
+    charcoal = '26332E';
+  ws['!cols'] = [
+    { wch: 24 },
+    { wch: 38 },
+    { wch: 18 },
+    { wch: 15 },
+    { wch: 15 },
+    { wch: 15 },
+    { wch: 19 },
+  ];
+  ws['!rows'] = rows.map((_, i) => ({
+    hpt: i === 0 ? 31 : roomHeaderRows.includes(i) ? 25 : 21,
+  }));
+  ws['!merges'] = [
+    0,
+    1,
+    3,
+    4,
+    5,
+    summaryStart,
+    rows.length - 2,
+    rows.length - 1,
+  ].map((r) => ({ s: { r, c: 0 }, e: { r, c: r === summaryStart ? 6 : 6 } }));
+  ws['!freeze'] = {
+    xSplit: 0,
+    ySplit: 7,
+    topLeftCell: 'A8',
+    activePane: 'bottomLeft',
+    state: 'frozen',
+  };
+  ws['!autofilter'] = { ref: `A${tableHeaderRows[0] + 1}:G${rows.length}` };
+  ws['!margins'] = {
+    left: 0.35,
+    right: 0.35,
+    top: 0.5,
+    bottom: 0.5,
+    header: 0.2,
+    footer: 0.2,
+  };
+  ws['!pageSetup'] = {
+    orientation: 'landscape',
+    fitToWidth: 1,
+    fitToHeight: 0,
+    paperSize: 9,
+  };
+  const range = X.utils.decode_range(ws['!ref']!);
+  for (let r = range.s.r; r <= range.e.r; r++)
+    for (let c = 0; c <= 6; c++) {
+      const cell = ws[X.utils.encode_cell({ r, c })];
+      if (!cell) continue;
+      cell.s = {
+        font: { name: 'Aptos', sz: 10, color: { rgb: charcoal } },
+        alignment: {
+          vertical: 'center',
+          horizontal: c >= 4 ? 'right' : 'left',
+          wrapText: true,
+        },
+        border: { bottom: { style: 'hair', color: { rgb: line } } },
+      };
+      if (c >= 4 && typeof cell.v === 'number')
+        cell.s.numFmt = '₹#,##0;[Red]-₹#,##0';
+    }
+  ws.A1.s = {
+    font: { name: 'Aptos Display', sz: 22, bold: true, color: { rgb: deep } },
+    alignment: { vertical: 'center' },
+  };
+  ws.A2.s = {
+    font: { name: 'Aptos', sz: 9, color: { rgb: '65716C' } },
+    alignment: { vertical: 'center' },
+  };
+  ws.A4.s = {
+    font: {
+      name: 'Aptos Display',
+      sz: 16,
+      bold: true,
+      color: { rgb: charcoal },
+    },
+    alignment: { vertical: 'center' },
+  };
+  ws.A5.s = {
+    font: { name: 'Aptos', sz: 11, bold: true, color: { rgb: accent } },
+    alignment: { vertical: 'center' },
+  };
+  roomHeaderRows.forEach((r) => {
+    for (let c = 0; c <= 6; c++) {
+      const cell =
+        ws[X.utils.encode_cell({ r, c })] ??
+        (ws[X.utils.encode_cell({ r, c })] = { t: 's', v: '' });
+      cell.s = {
+        fill: { fgColor: { rgb: warm } },
+        font: { name: 'Aptos', sz: 11, bold: true, color: { rgb: deep } },
+        alignment: {
+          vertical: 'center',
+          horizontal: c === 6 ? 'right' : 'left',
+        },
+        border: { bottom: { style: 'medium', color: { rgb: accent } } },
+        numFmt: c === 6 ? '₹#,##0' : undefined,
+      };
+    }
+  });
+  tableHeaderRows.forEach((r) => {
+    for (let c = 0; c <= 6; c++) {
+      const cell = ws[X.utils.encode_cell({ r, c })];
+      cell.s = {
+        fill: { fgColor: { rgb: deep } },
+        font: { name: 'Aptos', sz: 9, bold: true, color: { rgb: 'FFFFFF' } },
+        alignment: {
+          vertical: 'center',
+          horizontal: c >= 4 ? 'right' : 'left',
+        },
+        border: { bottom: { style: 'thin', color: { rgb: deep } } },
+      };
+    }
+  });
+  for (let r = summaryStart; r <= summaryStart + 6; r++) {
+    for (let c = 0; c <= 6; c++) {
+      const cell = ws[X.utils.encode_cell({ r, c })];
+      if (!cell) continue;
+      cell.s = {
+        font: {
+          name: 'Aptos',
+          sz: r === summaryStart + 6 ? 13 : 10,
+          bold:
+            r === summaryStart ||
+            r === summaryStart + 4 ||
+            r === summaryStart + 6,
+          color: { rgb: r === summaryStart ? 'FFFFFF' : deep },
+        },
+        fill:
+          r === summaryStart
+            ? { fgColor: { rgb: deep } }
+            : r === summaryStart + 6
+              ? { fgColor: { rgb: warm } }
+              : undefined,
+        alignment: {
+          vertical: 'center',
+          horizontal: c === 6 ? 'right' : 'left',
+        },
+        border: {
+          bottom: {
+            style: r === summaryStart + 6 ? 'medium' : 'thin',
+            color: { rgb: r === summaryStart + 6 ? accent : line },
+          },
+        },
+        numFmt: c === 6 ? '₹#,##0;[Red]-₹#,##0' : undefined,
+      };
+    }
+  }
+  const wb = X.utils.book_new();
+  wb.Props = {
+    Title: `Quotation for ${project.clientName}`,
+    Subject: project.propertyName,
+    Author: settings.letterheadName,
+    Company: settings.firmName,
+  };
+  X.utils.book_append_sheet(wb, ws, 'Quotation');
+  X.writeFile(
+    wb,
+    `${project.propertyName.replace(/\s+/g, '-')}-quotation.xlsx`,
+    { compression: true },
+  );
+}
 function Builder({ s }: { s: Store }) {
   const { id } = useParams(),
     go = useNavigate(),
@@ -526,6 +772,9 @@ function Builder({ s }: { s: Store }) {
     [roomModal, setRoomModal] = useState(false),
     [itemModal, setItemModal] = useState(false),
     [compare, setCompare] = useState(false),
+    [projectActions, setProjectActions] = useState(false),
+    [deleteProject, setDeleteProject] = useState(false),
+    [editingItemId, setEditingItemId] = useState<string | null>(null),
     [roomsOpen, setRoomsOpen] = useState(() => window.innerWidth > 1100),
     [summaryOpen, setSummaryOpen] = useState(() => window.innerWidth > 1100);
   if (!p && !s.hydrated)
@@ -599,6 +848,68 @@ function Builder({ s }: { s: Store }) {
             <ReceiptText />
             Preview
           </Button>
+          <div className="project-actions-wrap">
+            <Button
+              variant="outline"
+              onClick={() => setProjectActions((value) => !value)}
+              aria-label="Project actions"
+            >
+              <MoreHorizontal />
+              <span>More</span>
+            </Button>
+            {projectActions && (
+              <div className="context-menu project-menu">
+                <button
+                  onClick={() => {
+                    const name = prompt('Rename project', p.propertyName);
+                    if (name?.trim())
+                      update((q) => ({ ...q, propertyName: name.trim() }));
+                    setProjectActions(false);
+                  }}
+                >
+                  <Pencil />
+                  Rename project
+                </button>
+                <button
+                  onClick={() => {
+                    const copy = {
+                      ...structuredClone(p),
+                      id: uid(),
+                      propertyName: `${p.propertyName} copy`,
+                      createdAt: new Date().toISOString(),
+                      updatedAt: new Date().toISOString(),
+                    };
+                    s.setProjects([copy, ...s.projects]);
+                    setProjectActions(false);
+                    go(`/projects/${copy.id}`);
+                  }}
+                >
+                  <Copy />
+                  Duplicate project
+                </button>
+                <button
+                  onClick={() => {
+                    void exportProjectExcel(p, s.settings);
+                    setProjectActions(false);
+                  }}
+                >
+                  <Download />
+                  Export quotation
+                </button>
+                <span />
+                <button
+                  className="danger"
+                  onClick={() => {
+                    setProjectActions(false);
+                    setDeleteProject(true);
+                  }}
+                >
+                  <Trash2 />
+                  Delete project
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
       <div
@@ -701,6 +1012,11 @@ function Builder({ s }: { s: Store }) {
                   key={item.id}
                   item={item}
                   p={p}
+                  currentRoomId={room.id}
+                  editing={editingItemId === item.id}
+                  setEditing={(value) =>
+                    setEditingItemId(value ? item.id : null)
+                  }
                   patch={(x) => patchItem(item.id, x)}
                   duplicate={() =>
                     update((q) => ({
@@ -739,15 +1055,17 @@ function Builder({ s }: { s: Store }) {
                     update((q) => ({
                       ...q,
                       rooms: q.rooms.map((r) =>
-                        r.id === dest
+                        r.id === room.id
                           ? {
                               ...r,
-                              items: [
-                                ...r.items,
-                                { ...structuredClone(item), id: uid() },
-                              ],
+                              items: r.items.filter((x) => x.id !== item.id),
                             }
-                          : r,
+                          : r.id === dest
+                            ? {
+                                ...r,
+                                items: [...r.items, structuredClone(item)],
+                              }
+                            : r,
                       ),
                     }))
                   }
@@ -859,6 +1177,41 @@ function Builder({ s }: { s: Store }) {
         </Modal>
       )}
       {compare && <Compare p={p} close={() => setCompare(false)} />}
+      {deleteProject && (
+        <Modal title="Delete project" close={() => setDeleteProject(false)}>
+          <div className="delete-confirm">
+            <Trash2 />
+            <div>
+              <strong>
+                Are you sure you want to delete “{p.propertyName}”?
+              </strong>
+              <p>
+                This removes the project and its saved revisions from this
+                device. This cannot be undone.
+              </p>
+            </div>
+          </div>
+          <div className="actions">
+            <Button variant="outline" onClick={() => setDeleteProject(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                s.setProjects(
+                  s.projects.filter((project) => project.id !== p.id),
+                );
+                s.setRevisions(
+                  s.revisions.filter((revision) => revision.projectId !== p.id),
+                );
+                go('/projects');
+              }}
+            >
+              Delete project
+            </Button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -878,9 +1231,64 @@ function Num({
     />
   );
 }
+function QuickMeasure({
+  item,
+  patch,
+}: {
+  item: QuoteItem;
+  patch: (x: Partial<QuoteItem>) => void;
+}) {
+  if (item.measurementType === 'flat')
+    return <span className="quick-measure flat-measure">Flat amount</span>;
+  const field = (
+    label: string,
+    value: number,
+    key: keyof QuoteItem,
+    unit = '',
+  ) => (
+    <label>
+      <span>{label}</span>
+      <Input
+        aria-label={`${item.name} ${label}`}
+        type="number"
+        min="0"
+        value={value}
+        onChange={(event) => patch({ [key]: Number(event.target.value) || 0 })}
+      />
+      {unit && <b>{unit}</b>}
+    </label>
+  );
+  return (
+    <div className="quick-measure">
+      {item.measurementType === 'sqft' && (
+        <>
+          {field('Length', item.length, 'length', 'ft')}
+          <i>×</i>
+          {field('Width', item.width, 'width', 'ft')}
+          <em>{itemMeasure(item).toLocaleString('en-IN')} sqft</em>
+        </>
+      )}
+      {item.measurementType === 'rft' && (
+        <>
+          {field('Length', item.length, 'length', 'ft')}
+          <em>{itemMeasure(item).toLocaleString('en-IN')} rft</em>
+        </>
+      )}
+      {item.measurementType === 'quantity' && (
+        <>
+          {field('Quantity', item.quantity, 'quantity')}
+          <em>{itemMeasure(item).toLocaleString('en-IN')} units</em>
+        </>
+      )}
+    </div>
+  );
+}
 function Item({
   item,
   p,
+  currentRoomId,
+  editing,
+  setEditing,
   patch,
   duplicate,
   remove,
@@ -889,17 +1297,28 @@ function Item({
 }: {
   item: QuoteItem;
   p: Project;
+  currentRoomId: string;
+  editing: boolean;
+  setEditing: (value: boolean) => void;
   patch: (x: Partial<QuoteItem>) => void;
   duplicate: () => void;
   remove: () => void;
   move: (x: string) => void;
   order: (d: number) => void;
 }) {
-  const [editing, setEditing] = useState(false),
-    [more, setMore] = useState(false),
+  const [more, setMore] = useState(false),
+    menuRef = useRef<HTMLDivElement>(null),
     rate = itemBaseRate(item, p.defaultTier),
     original = itemOriginalTotal(item, p.defaultTier),
     total = itemTotal(item, p.defaultTier);
+  useEffect(() => {
+    if (!more) return;
+    const close = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setMore(false);
+    };
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
+  }, [more]);
   return (
     <article className={'item ' + (!item.enabled ? 'off' : '')}>
       <header>
@@ -911,6 +1330,7 @@ function Item({
           <span>
             <strong>{item.name}</strong>
             <small>{item.description || 'No description'}</small>
+            <QuickMeasure item={item} patch={patch} />
           </span>
         </div>
         <span className="item-total">
@@ -924,18 +1344,94 @@ function Item({
         <Button
           variant={editing ? 'secondary' : 'outline'}
           className="edit-item"
-          onClick={() => setEditing((value) => !value)}
+          onClick={() => setEditing(!editing)}
         >
           {editing ? 'Done' : 'Edit'}
         </Button>
-        <Button
-          variant="ghost"
-          size="icon-lg"
-          onClick={() => setMore(!more)}
-          aria-label="Item actions"
-        >
-          <MoreHorizontal />
-        </Button>
+        <div className="item-actions-wrap" ref={menuRef}>
+          <Button
+            variant="ghost"
+            size="icon-lg"
+            onClick={() => setMore(!more)}
+            aria-label={`Actions for ${item.name}`}
+            aria-expanded={more}
+          >
+            <MoreHorizontal />
+          </Button>
+          {more && (
+            <div className="context-menu item-context-menu" role="menu">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  duplicate();
+                  setMore(false);
+                }}
+              >
+                <Copy /> Duplicate here
+              </Button>
+              <label>
+                Move to room
+                <select
+                  defaultValue=""
+                  onChange={(event) => {
+                    if (event.target.value) move(event.target.value);
+                    setMore(false);
+                  }}
+                >
+                  <option value="" disabled>
+                    Select room…
+                  </option>
+                  {p.rooms
+                    .filter((room) => room.id !== currentRoomId)
+                    .map((room) => (
+                      <option value={room.id} key={room.id}>
+                        {room.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  patch({ enabled: !item.enabled });
+                  setMore(false);
+                }}
+              >
+                {item.enabled ? 'Disable item' : 'Enable item'}
+              </Button>
+              <div className="menu-order">
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    order(-1);
+                    setMore(false);
+                  }}
+                >
+                  <ChevronUp /> Up
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    order(1);
+                    setMore(false);
+                  }}
+                >
+                  <ChevronDown /> Down
+                </Button>
+              </div>
+              <span className="menu-separator" />
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  remove();
+                  setMore(false);
+                }}
+              >
+                <Trash2 /> Delete item
+              </Button>
+            </div>
+          )}
+        </div>
       </header>
       {editing && (
         <div className="item-editor">
@@ -1050,39 +1546,6 @@ function Item({
             <span>Changes are saved locally as you edit.</span>
             <Button onClick={() => setEditing(false)}>Done editing</Button>
           </div>
-        </div>
-      )}
-      {more && (
-        <div className="item-menu">
-          <Button variant="ghost" onClick={duplicate}>
-            <Copy />
-            Duplicate here
-          </Button>
-          <select
-            defaultValue=""
-            onChange={(e) => e.target.value && move(e.target.value)}
-          >
-            <option value="" disabled>
-              Duplicate to room…
-            </option>
-            {p.rooms.map((r) => (
-              <option value={r.id} key={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </select>
-          <Button variant="ghost" onClick={() => order(-1)}>
-            <ChevronUp />
-            Move up
-          </Button>
-          <Button variant="ghost" onClick={() => order(1)}>
-            <ChevronDown />
-            Move down
-          </Button>
-          <Button variant="destructive" onClick={remove}>
-            <Trash2 />
-            Delete
-          </Button>
         </div>
       )}
     </article>
@@ -1201,58 +1664,7 @@ function Preview({ s }: { s: Store }) {
         ),
       );
   async function excel() {
-    const X = await import('xlsx'),
-      rows: any[][] = [
-        [s.settings.letterheadName],
-        [s.settings.address],
-        [`Quotation for ${p.clientName}`],
-        [p.propertyName, p.layout, `${p.carpetArea} sqft`],
-        [],
-        ['Room', 'Item', 'Measurement', 'Tier', 'Rate', 'Discount', 'Total'],
-      ];
-    p.rooms.forEach((r) =>
-      r.items
-        .filter((i) => i.enabled)
-        .forEach((i) =>
-          rows.push([
-            r.name,
-            i.name,
-            `${itemMeasure(i)} ${i.measurementType}`,
-            tl(i.tierOverride ?? p.defaultTier),
-            itemBaseRate(i, p.defaultTier),
-            i.discount,
-            itemTotal(i, p.defaultTier),
-          ]),
-        ),
-    );
-    rows.push(
-      [],
-      ['Interior work', '', '', '', '', '', t.interior],
-      ...t.fees.map((f) => [
-        f.name,
-        '',
-        '',
-        '',
-        '',
-        f.original - f.total,
-        f.total,
-      ]),
-      ['Project discount', '', '', '', '', '', -t.discount],
-      ['GRAND TOTAL', '', '', '', '', '', t.grandTotal],
-    );
-    const ws = X.utils.aoa_to_sheet(rows);
-    ws['!cols'] = [
-      { wch: 22 },
-      { wch: 35 },
-      { wch: 18 },
-      { wch: 14 },
-      { wch: 14 },
-      { wch: 14 },
-      { wch: 18 },
-    ];
-    const wb = X.utils.book_new();
-    X.utils.book_append_sheet(wb, ws, 'Quotation');
-    X.writeFile(wb, `${p.propertyName.replace(/\s/g, '-')}-quotation.xlsx`);
+    await exportProjectExcel(p, s.settings);
   }
   return (
     <div className="preview">

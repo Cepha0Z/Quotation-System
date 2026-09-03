@@ -1,7 +1,8 @@
 import type { Fee, Project, QuoteItem, Room, Tier } from './types';
 
 const safe = (value: unknown) => Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : 0;
-export const inr = (value: number) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(safe(value));
+const safeCurrency = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : 0;
+export const inr = (value: number) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(safeCurrency(value));
 export const effectiveTier = (item: QuoteItem, projectTier: Tier) => item.tierOverride ?? projectTier;
 export const itemBaseRate = (item: QuoteItem, projectTier: Tier, forcedTier?: Tier) => item.rateOverride ?? item.rates[forcedTier ?? effectiveTier(item, projectTier)] ?? 0;
 export const itemMeasure = (item: QuoteItem) => {
