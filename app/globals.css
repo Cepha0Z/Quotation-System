@@ -2675,3 +2675,48 @@ textarea {
     width: min(244px, calc(100vw - 24px));
   }
 }
+
+/* Keep project actions orderly on phones. */
+@media (max-width: 800px) {
+  .builder-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+  }
+  .builder-head > div:first-child {
+    min-width: 0;
+    width: 100%;
+  }
+  .builder-head .builder-actions {
+    display: grid;
+    grid-template-columns: auto 44px;
+    align-items: center;
+    justify-content: stretch;
+    gap: 12px;
+    width: 100%;
+    max-width: none;
+  }
+  .builder-head .project-links {
+    display: none;
+  }
+  .builder-head .save-revision {
+    width: auto;
+    min-width: 0;
+    justify-self: start;
+  }
+  .builder-head .project-actions-wrap {
+    grid-column: auto;
+    justify-self: end;
+    width: 44px;
+    min-width: 44px;
+  }
+  .builder-head .project-actions-wrap > button {
+    width: 44px;
+    min-width: 44px;
+    justify-content: center;
+  }
+  .builder-head .project-menu {
+    right: 0;
+    left: auto;
+  }
+}
