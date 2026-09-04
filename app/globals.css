@@ -191,6 +191,19 @@ small {
   color: #607069;
   font-size: 12px;
 }
+.saved.saving {
+  color: #9a6a35;
+}
+.saved.error {
+  color: #9a463e;
+}
+.storage-error {
+  padding: 9px 24px;
+  border-bottom: 1px solid #e5c9c4;
+  background: #fff4f1;
+  color: #7e3e37;
+  font-size: 13px;
+}
 .hamb {
   display: none;
   background: none;
@@ -311,6 +324,9 @@ td small {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 18px;
+}
+.form-grid.single-column {
+  grid-template-columns: minmax(0, 1fr);
 }
 .form-grid label,
 .settings-form > label,

@@ -65,6 +65,7 @@ import type {
   Tier,
 } from '@/domain/types';
 import {
+  migrateLegacyStorage,
   projectRepository,
   rateCardRepository,
   revisionRepository,
@@ -102,6 +103,8 @@ const itemImage = (name: string) => {
 };
 type Store = {
   hydrated: boolean;
+  saveState: 'loading' | 'saving' | 'saved' | 'error';
+  storageError: string | null;
   projects: Project[];
   setProjects: (v: Project[]) => void;
   rates: RateCardItem[];
@@ -116,56 +119,118 @@ function useStore(): Store {
     [rates, sr] = useState<RateCardItem[]>([]),
     [settings, ss] = useState(ds),
     [revisions, sv] = useState<Revision[]>([]),
-    [ready, setReady] = useState(false);
+    [ready, setReady] = useState(false),
+    [saveState, setSaveState] = useState<Store['saveState']>('loading'),
+    [storageError, setStorageError] = useState<string | null>(null),
+    timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({}),
+    pendingWrites = useRef<Record<string, () => Promise<void>>>({});
+
+  const flushWrite = async (key: string) => {
+    const write = pendingWrites.current[key];
+    if (!write) return;
+    delete pendingWrites.current[key];
+    clearTimeout(timers.current[key]);
+    delete timers.current[key];
+    try {
+      await write();
+      if (!Object.keys(pendingWrites.current).length) setSaveState('saved');
+    } catch {
+      setSaveState('error');
+      setStorageError(
+        'Changes are available for this session, but could not be saved on this device.',
+      );
+    }
+  };
+
+  const queueWrite = (key: string, write: () => Promise<void>) => {
+    pendingWrites.current[key] = write;
+    clearTimeout(timers.current[key]);
+    setSaveState('saving');
+    timers.current[key] = setTimeout(() => void flushWrite(key), 180);
+  };
+
   useEffect(() => {
-    const savedProjects = projectRepository.list([]);
-    const initialProjects = savedProjects.length
-      ? savedProjects.map((project) =>
-          project.propertyName === 'Sharma Residence'
-            ? {
-                ...project,
-                fees: project.fees.map((fee) =>
-                  fee.name === 'Design Fee' && fee.discount === 20000
-                    ? { ...fee, discount: 0 }
-                    : fee,
-                ),
-              }
-            : project,
-        )
-      : [sampleProject];
-    sp(initialProjects);
-    projectRepository.saveAll(initialProjects);
-    const savedRates = rateCardRepository.list([]);
-    const initialRates = savedRates.length ? savedRates : dr;
-    sr(initialRates);
-    if (!savedRates.length) rateCardRepository.saveAll(initialRates);
-    const initialSettings = settingsRepository.get(ds);
-    ss(initialSettings);
-    settingsRepository.save(initialSettings);
-    sv(revisionRepository.list());
-    setReady(true);
+    let active = true;
+    void (async () => {
+      try {
+        await migrateLegacyStorage();
+        const [savedProjects, savedRates, savedSettings, savedRevisions] =
+          await Promise.all([
+            projectRepository.list(),
+            rateCardRepository.list(),
+            settingsRepository.get(),
+            revisionRepository.list(),
+          ]);
+        const initialProjects = savedProjects.length
+          ? savedProjects
+          : [sampleProject];
+        const initialRates = savedRates.length ? savedRates : dr;
+        const initialSettings = savedSettings ?? ds;
+        const seedWrites: Promise<void>[] = [];
+        if (!savedProjects.length)
+          seedWrites.push(projectRepository.saveAll(initialProjects));
+        if (!savedRates.length)
+          seedWrites.push(rateCardRepository.saveAll(initialRates));
+        if (!savedSettings)
+          seedWrites.push(settingsRepository.save(initialSettings));
+        await Promise.all(seedWrites);
+        if (!active) return;
+        sp(initialProjects);
+        sr(initialRates);
+        ss(initialSettings);
+        sv(savedRevisions);
+        setSaveState('saved');
+      } catch {
+        if (!active) return;
+        sp([sampleProject]);
+        sr(dr);
+        ss(ds);
+        sv([]);
+        setSaveState('error');
+        setStorageError(
+          'Local saving is unavailable. You can keep working, but changes may not remain after closing the app.',
+        );
+      } finally {
+        if (active) setReady(true);
+      }
+    })();
+    const flushPending = () => {
+      if (document.visibilityState === 'hidden')
+        Object.keys(pendingWrites.current).forEach(
+          (key) => void flushWrite(key),
+        );
+    };
+    document.addEventListener('visibilitychange', flushPending);
+    window.addEventListener('pagehide', flushPending);
+    return () => {
+      active = false;
+      document.removeEventListener('visibilitychange', flushPending);
+      window.removeEventListener('pagehide', flushPending);
+    };
   }, []);
   return {
     hydrated: ready,
+    saveState,
+    storageError,
     projects,
     setProjects: (v) => {
       sp(v);
-      if (ready) projectRepository.saveAll(v);
+      if (ready) queueWrite('projects', () => projectRepository.saveAll(v));
     },
     rates,
     setRates: (v) => {
       sr(v);
-      if (ready) rateCardRepository.saveAll(v);
+      if (ready) queueWrite('rates', () => rateCardRepository.saveAll(v));
     },
     settings,
     setSettings: (v) => {
       ss(v);
-      if (ready) settingsRepository.save(v);
+      if (ready) queueWrite('settings', () => settingsRepository.save(v));
     },
     revisions,
     setRevisions: (v) => {
       sv(v);
-      if (ready) revisionRepository.saveAll(v);
+      if (ready) queueWrite('revisions', () => revisionRepository.saveAll(v));
     },
   };
 }
@@ -234,8 +299,22 @@ function Shell({ s }: { s: Store }) {
             <small>ESTIMATING WORKSPACE</small>
             <strong>Interix Studio</strong>
           </div>
-          <span className="saved">● Saved locally</span>
+          <span className={`saved ${s.saveState}`}>
+            ●{' '}
+            {s.saveState === 'loading'
+              ? 'Loading local data'
+              : s.saveState === 'saving'
+                ? 'Saving…'
+                : s.saveState === 'error'
+                  ? 'Saving unavailable'
+                  : 'Saved locally'}
+          </span>
         </header>
+        {s.storageError && (
+          <div className="storage-error" role="status">
+            {s.storageError}
+          </div>
+        )}
         <Routes>
           <Route path="/dashboard" element={<Dashboard s={s} />} />
           <Route path="/projects" element={<Projects s={s} />} />
@@ -799,6 +878,8 @@ function Builder({ s }: { s: Store }) {
     [compare, setCompare] = useState(false),
     [projectActions, setProjectActions] = useState(false),
     [deleteProject, setDeleteProject] = useState(false),
+    [revisionModal, setRevisionModal] = useState(false),
+    [revisionNote, setRevisionNote] = useState(''),
     [editingItemId, setEditingItemId] = useState<string | null>(null),
     [roomsOpen, setRoomsOpen] = useState(() => window.innerWidth > 1100),
     [summaryOpen, setSummaryOpen] = useState(() => window.innerWidth > 1100);
@@ -825,9 +906,8 @@ function Builder({ s }: { s: Store }) {
           : r,
       ),
     }));
-  function saveRev() {
-    const note = prompt('Revision note (optional)') ?? '',
-      prior = s.revisions.filter((r) => r.projectId === p.id);
+  function saveRev(note: string) {
+    const prior = s.revisions.filter((r) => r.projectId === p.id);
     s.setRevisions([
       ...s.revisions,
       {
@@ -840,6 +920,8 @@ function Builder({ s }: { s: Store }) {
         snapshot: structuredClone(p),
       },
     ]);
+    setRevisionModal(false);
+    setRevisionNote('');
   }
   return (
     <div className="builder">
@@ -863,7 +945,11 @@ function Builder({ s }: { s: Store }) {
               Preview
             </button>
           </nav>
-          <Button variant="outline" className="save-revision" onClick={saveRev}>
+          <Button
+            variant="outline"
+            className="save-revision"
+            onClick={() => setRevisionModal(true)}
+          >
             <Save />
             Save revision
           </Button>
@@ -1240,6 +1326,27 @@ function Builder({ s }: { s: Store }) {
         </Modal>
       )}
       {compare && <Compare p={p} close={() => setCompare(false)} />}
+      {revisionModal && (
+        <Modal title="Save revision" close={() => setRevisionModal(false)}>
+          <div className="form-grid single-column">
+            <label>
+              Revision note (optional)
+              <Input
+                autoFocus
+                value={revisionNote}
+                onChange={(event) => setRevisionNote(event.target.value)}
+                placeholder="For example: Client requested changes"
+              />
+            </label>
+          </div>
+          <div className="actions">
+            <Button variant="outline" onClick={() => setRevisionModal(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => saveRev(revisionNote)}>Save revision</Button>
+          </div>
+        </Modal>
+      )}
       {deleteProject && (
         <Modal title="Delete project" close={() => setDeleteProject(false)}>
           <div className="delete-confirm">
@@ -2320,6 +2427,8 @@ function WebTool({ s }: { s: Store }) {
 }
 function Root() {
   const s = useStore();
+  if (!s.hydrated)
+    return <div className="boot">Loading your saved workspace…</div>;
   return (
     <>
       <WebTool s={s} />

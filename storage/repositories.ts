@@ -1,9 +1,60 @@
-import type { FirmSettings, Project, RateCardItem, Revision } from '../domain/types';
+import type {
+  FirmSettings,
+  Project,
+  RateCardItem,
+  Revision,
+} from '../domain/types';
+import { projectRepository } from './projectRepository';
+import { rateCardRepository } from './rateCardRepository';
+import { revisionRepository } from './revisionRepository';
+import { settingsRepository } from './settingsRepository';
 
-const KEYS = { projects: 'interix.projects.v1', rates: 'interix.rates.v1', settings: 'interix.settings.v1', revisions: 'interix.revisions.v1' };
-const read = <T>(key: string, fallback: T): T => { try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch { return fallback; } };
-const write = <T>(key: string, value: T) => localStorage.setItem(key, JSON.stringify(value));
-export const projectRepository = { list: (fallback: Project[] = []) => read(KEYS.projects, fallback), saveAll: (v: Project[]) => write(KEYS.projects, v) };
-export const rateCardRepository = { list: (fallback: RateCardItem[] = []) => read(KEYS.rates, fallback), saveAll: (v: RateCardItem[]) => write(KEYS.rates, v) };
-export const settingsRepository = { get: (fallback: FirmSettings) => read(KEYS.settings, fallback), save: (v: FirmSettings) => write(KEYS.settings, v) };
-export const revisionRepository = { list: () => read<Revision[]>(KEYS.revisions, []), saveAll: (v: Revision[]) => write(KEYS.revisions, v) };
+const LEGACY_KEYS = {
+  projects: 'interix.projects.v1',
+  rates: 'interix.rates.v1',
+  settings: 'interix.settings.v1',
+  revisions: 'interix.revisions.v1',
+};
+
+const legacyRead = <T>(key: string): T | undefined => {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+export async function migrateLegacyStorage() {
+  const [projects, rates, settings, revisions] = await Promise.all([
+    projectRepository.list(),
+    rateCardRepository.list(),
+    settingsRepository.get(),
+    revisionRepository.list(),
+  ]);
+  const writes: Promise<void>[] = [];
+  if (!projects.length) {
+    const legacy = legacyRead<Project[]>(LEGACY_KEYS.projects);
+    if (legacy?.length) writes.push(projectRepository.saveAll(legacy));
+  }
+  if (!rates.length) {
+    const legacy = legacyRead<RateCardItem[]>(LEGACY_KEYS.rates);
+    if (legacy?.length) writes.push(rateCardRepository.saveAll(legacy));
+  }
+  if (!settings) {
+    const legacy = legacyRead<FirmSettings>(LEGACY_KEYS.settings);
+    if (legacy) writes.push(settingsRepository.save(legacy));
+  }
+  if (!revisions.length) {
+    const legacy = legacyRead<Revision[]>(LEGACY_KEYS.revisions);
+    if (legacy?.length) writes.push(revisionRepository.saveAll(legacy));
+  }
+  await Promise.all(writes);
+}
+
+export {
+  projectRepository,
+  rateCardRepository,
+  revisionRepository,
+  settingsRepository,
+};
