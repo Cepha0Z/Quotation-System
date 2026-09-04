@@ -20,7 +20,7 @@ export interface Project {
 export interface RateCardItem { id: string; name: string; description: string; unit: MeasurementType; rates: TierRates; subUnits: SubUnit[] }
 export interface FirmSettings {
   firmName: string; letterheadName: string; tagline: string; gstNumber: string; address: string;
-  phone: string; email: string; quotationNotes: string; terms: string; thankYou: string;
+  phone: string; website: string; email: string; quotationNotes: string; terms: string; thankYou: string;
   enabledTiers: Tier[];
 }
 export interface Revision { id: string; projectId: string; number: number; createdAt: string; total: number; note: string; snapshot: Project }

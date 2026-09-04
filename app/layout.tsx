@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Interix — Quotation Studio',
+  title: 'Nebulous Design Workshop — Quotation Studio',
   description: 'Local-first interior design quotation and BOQ workspace.',
 };
 

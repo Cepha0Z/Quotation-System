@@ -42,7 +42,6 @@ import { Switch } from '@/components/ui/switch';
 import {
   firmSettings as ds,
   rateCard as dr,
-  sampleProject,
 } from '@/domain/sample';
 import {
   inr,
@@ -73,6 +72,21 @@ import {
 } from '@/storage/repositories';
 const uid = () => crypto.randomUUID(),
   tl = (t: Tier) => t[0].toUpperCase() + t.slice(1);
+
+function normalizeFirmSettings(saved?: Partial<FirmSettings>): FirmSettings {
+  const settings = { ...ds, ...saved };
+  if (settings.firmName === 'INTERIX') settings.firmName = ds.firmName;
+  if (settings.letterheadName === 'Interix Design Studio')
+    settings.letterheadName = ds.letterheadName;
+  if (settings.gstNumber === '29ABCDE1234F1Z5') settings.gstNumber = '';
+  if (settings.address === 'Indiranagar, Bengaluru, Karnataka 560038')
+    settings.address = '';
+  if (settings.phone === '+91 98765 43210') settings.phone = '';
+  if (settings.email === 'studio@interix.in') settings.email = ds.email;
+  if (settings.thankYou === 'Thank you for trusting Interix with your home.')
+    settings.thankYou = ds.thankYou;
+  return settings;
+}
 const presets = [
   'Living Room',
   'Dining',
@@ -161,17 +175,16 @@ function useStore(): Store {
             settingsRepository.get(),
             revisionRepository.list(),
           ]);
-        const initialProjects = savedProjects.length
-          ? savedProjects
-          : [sampleProject];
+        const initialProjects = savedProjects;
         const initialRates = savedRates.length ? savedRates : dr;
-        const initialSettings = savedSettings ?? ds;
+        const initialSettings = normalizeFirmSettings(savedSettings);
         const seedWrites: Promise<void>[] = [];
-        if (!savedProjects.length)
-          seedWrites.push(projectRepository.saveAll(initialProjects));
         if (!savedRates.length)
           seedWrites.push(rateCardRepository.saveAll(initialRates));
-        if (!savedSettings)
+        if (
+          !savedSettings ||
+          JSON.stringify(savedSettings) !== JSON.stringify(initialSettings)
+        )
           seedWrites.push(settingsRepository.save(initialSettings));
         await Promise.all(seedWrites);
         if (!active) return;
@@ -182,7 +195,7 @@ function useStore(): Store {
         setSaveState('saved');
       } catch {
         if (!active) return;
-        sp([sampleProject]);
+        sp([]);
         sr(dr);
         ss(ds);
         sv([]);
@@ -250,9 +263,9 @@ function Shell({ s }: { s: Store }) {
     <div className={'app-shell ' + (collapsed ? 'nav-collapsed' : '')}>
       <aside className={'sidebar ' + (open ? 'open' : '')}>
         <div className="brand">
-          <b>IX</b>
+          <b>ND</b>
           <span>
-            <strong>INTERIX</strong>
+            <strong>NEBULOUS DESIGN</strong>
             <small>Quotation Studio</small>
           </span>
           <button
@@ -297,7 +310,7 @@ function Shell({ s }: { s: Store }) {
           </button>
           <div>
             <small>ESTIMATING WORKSPACE</small>
-            <strong>Interix Studio</strong>
+            <strong>Nebulous Design Workshop</strong>
           </div>
           <span className={`saved ${s.saveState}`}>
             ●{' '}
@@ -347,7 +360,7 @@ function Modal({
       <section className="modal">
         <header>
           <div>
-            <small>INTERIX</small>
+            <small>NEBULOUS DESIGN</small>
             <h2>{title}</h2>
           </div>
           <Button variant="ghost" size="icon-lg" onClick={close}>
@@ -420,11 +433,11 @@ function NewProject({ s }: { s: Store }) {
           <form className="form-grid" onSubmit={create}>
             <label>
               Client Name
-              <Input name="client" required placeholder="Arjun Sharma" />
+              <Input name="client" required placeholder="Client name" />
             </label>
             <label>
               Property Name
-              <Input name="property" required placeholder="Sharma Residence" />
+              <Input name="property" required placeholder="Property name" />
             </label>
             <label>
               Layout
@@ -631,7 +644,7 @@ async function exportProjectExcel(project: Project, settings: FirmSettings) {
   const totals = quoteTotals(project);
   const rows: (string | number)[][] = [
     [settings.letterheadName],
-    [settings.address],
+    [`${settings.website} · ${settings.email}`],
     [],
     [`QUOTATION FOR ${project.clientName.toUpperCase()}`],
     [
@@ -889,7 +902,7 @@ async function shareNativeFile(filename: string, data: string, _mimeType: string
   });
   await Share.share({
     title: filename,
-    text: 'Interix quotation export',
+    text: 'Nebulous Design Workshop quotation export',
     url: result.uri,
     dialogTitle: 'Save or share quotation',
   });
@@ -2021,7 +2034,7 @@ function Preview({ s }: { s: Store }) {
       </div>
       <article className="document">
         <header>
-          <b>IX</b>
+          <b>ND</b>
           <div>
             <span>QUOTATION</span>
             <strong>{s.settings.letterheadName}</strong>
@@ -2114,7 +2127,7 @@ function Preview({ s }: { s: Store }) {
           <aside>
             <strong>{s.settings.thankYou}</strong>
             <small>
-              {s.settings.email} · {s.settings.phone}
+              {s.settings.website} · {s.settings.email}
             </small>
           </aside>
         </footer>
@@ -2439,6 +2452,7 @@ function Firm({ s }: { s: Store }) {
             ['GST number', 'gstNumber'],
             ['Address', 'address'],
             ['Phone', 'phone'],
+            ['Website', 'website'],
             ['Email', 'email'],
             ['Thank-you message', 'thankYou'],
           ] as const
@@ -2498,8 +2512,8 @@ function WebTool({ s }: { s: Store }) {
     void Promise.resolve(
       m.registerTool(
         {
-          name: 'list_interix_projects',
-          title: 'List Interix projects',
+          name: 'list_nebulous_projects',
+          title: 'List Nebulous Design projects',
           description:
             'List locally saved quotation projects and current totals.',
           inputSchema: {

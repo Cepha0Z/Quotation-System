@@ -28,7 +28,7 @@ const transactionDone = (transaction: IDBTransaction) =>
 
 let databasePromise: Promise<IDBDatabase> | undefined;
 
-export function openInterixDatabase(): Promise<IDBDatabase> {
+export function openLocalDatabase(): Promise<IDBDatabase> {
   if (databasePromise) return databasePromise;
   databasePromise = new Promise((resolve, reject) => {
     if (!('indexedDB' in globalThis)) {
@@ -56,20 +56,20 @@ export function openInterixDatabase(): Promise<IDBDatabase> {
 
 export const indexedDbStorage: StorageAdapter = {
   async get<T>(key: string) {
-    const database = await openInterixDatabase();
+    const database = await openLocalDatabase();
     const transaction = database.transaction(STORE_NAME, 'readonly');
     return requestResult(
       transaction.objectStore(STORE_NAME).get(key),
     ) as Promise<T | undefined>;
   },
   async set<T>(key: string, value: T) {
-    const database = await openInterixDatabase();
+    const database = await openLocalDatabase();
     const transaction = database.transaction(STORE_NAME, 'readwrite');
     transaction.objectStore(STORE_NAME).put(structuredClone(value), key);
     await transactionDone(transaction);
   },
   async remove(key: string) {
-    const database = await openInterixDatabase();
+    const database = await openLocalDatabase();
     const transaction = database.transaction(STORE_NAME, 'readwrite');
     transaction.objectStore(STORE_NAME).delete(key);
     await transactionDone(transaction);
