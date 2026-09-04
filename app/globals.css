@@ -515,7 +515,7 @@ td small {
   gap: 15px;
   flex: 1;
 }
-.item-title span {
+.item-title > .item-copy {
   display: flex;
   flex-direction: column;
 }
@@ -1080,7 +1080,7 @@ td small {
   min-width: 0;
   align-self: stretch;
 }
-.item-title > span {
+.item-title > .item-copy {
   min-width: 0;
   flex: 1;
   justify-content: center;
@@ -1190,7 +1190,7 @@ select,
 .item.off {
   opacity: 1;
 }
-.item.off .item-title > span,
+.item.off .item-title > .item-copy,
 .item.off .item-total,
 .item.off .quick-measure {
   opacity: 0.58;

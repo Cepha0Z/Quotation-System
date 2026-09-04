@@ -1375,7 +1375,7 @@ function Item({
             checked={item.enabled}
             onCheckedChange={(v) => patch({ enabled: v })}
           />
-          <span>
+          <span className="item-copy">
             <strong>{item.name}</strong>
             <small>{item.description || 'No description'}</small>
             <QuickMeasure item={item} patch={patch} />
