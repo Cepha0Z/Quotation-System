@@ -2720,3 +2720,136 @@ textarea {
     left: auto;
   }
 }
+
+/* Capacitor/iOS viewport integration intentionally lives after legacy
+   responsive rules so fixed desktop offsets cannot override safe-area geometry. */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --topbar-height: calc(78px + var(--safe-top));
+  --builder-sticky-top: calc(183px + var(--safe-top));
+}
+html {
+  min-height: 100%;
+  background: var(--background);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+body {
+  min-height: 100dvh;
+  overscroll-behavior-y: none;
+}
+.app-shell {
+  min-height: 100dvh;
+}
+.topbar {
+  height: var(--topbar-height);
+  padding-top: var(--safe-top);
+  padding-right: calc(28px + var(--safe-right));
+  padding-left: calc(28px + var(--safe-left));
+}
+.sidebar {
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+}
+.builder {
+  min-height: calc(100dvh - var(--topbar-height));
+}
+.builder-grid {
+  min-height: calc(100dvh - var(--builder-sticky-top));
+}
+.rooms,
+.summary {
+  height: calc(100dvh - var(--builder-sticky-top));
+  top: var(--builder-sticky-top);
+  padding-bottom: calc(14px + var(--safe-bottom));
+}
+.backdrop {
+  padding:
+    calc(24px + var(--safe-top))
+    calc(24px + var(--safe-right))
+    calc(24px + var(--safe-bottom))
+    calc(24px + var(--safe-left));
+}
+.modal {
+  max-height: calc(100dvh - 48px - var(--safe-top) - var(--safe-bottom));
+  overscroll-behavior: contain;
+  scroll-padding-bottom: calc(24px + var(--safe-bottom));
+}
+.preview {
+  padding-right: calc(22px + var(--safe-right));
+  padding-bottom: calc(22px + var(--safe-bottom));
+  padding-left: calc(22px + var(--safe-left));
+}
+@media (max-width: 800px) {
+  .topbar {
+    padding-right: calc(16px + var(--safe-right));
+    padding-left: calc(16px + var(--safe-left));
+  }
+  .sidebar {
+    height: 100dvh;
+  }
+  .page,
+  .builder-head,
+  .workspace-controls {
+    padding-right: calc(16px + var(--safe-right));
+    padding-left: calc(16px + var(--safe-left));
+  }
+  .builder-grid .rooms.panel-open,
+  .builder-grid .summary.panel-open {
+    top: var(--topbar-height);
+    height: calc(100dvh - var(--topbar-height));
+    padding-bottom: calc(16px + var(--safe-bottom));
+  }
+  .builder-grid .rooms.panel-open {
+    left: var(--safe-left);
+  }
+  .builder-grid .summary.panel-open {
+    right: var(--safe-right);
+  }
+  .workspace-controls {
+    top: var(--topbar-height);
+  }
+  .preview {
+    padding: 0 var(--safe-right) var(--safe-bottom) var(--safe-left);
+  }
+  .preview-bar {
+    padding-right: calc(10px + var(--safe-right));
+    padding-bottom: calc(10px + var(--safe-bottom));
+    padding-left: calc(10px + var(--safe-left));
+  }
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea,
+  [data-slot='input'],
+  [data-slot='textarea'] {
+    font-size: 16px;
+  }
+  .builder-head .save-revision,
+  .workspace-controls button,
+  .room-components .edit-item,
+  .room-components .add-item,
+  .preview-bar button,
+  .modal button,
+  .context-menu button {
+    min-height: 44px;
+  }
+}
+@supports not (height: 100dvh) {
+  body,
+  .app-shell {
+    min-height: 100vh;
+  }
+  .builder {
+    min-height: calc(100vh - var(--topbar-height));
+  }
+  .builder-grid {
+    min-height: calc(100vh - var(--builder-sticky-top));
+  }
+  .rooms,
+  .summary {
+    height: calc(100vh - var(--builder-sticky-top));
+  }
+}

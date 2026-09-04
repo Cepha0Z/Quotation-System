@@ -862,11 +862,76 @@ async function exportProjectExcel(project: Project, settings: FirmSettings) {
     Company: settings.firmName,
   };
   X.utils.book_append_sheet(wb, ws, 'Quotation');
-  X.writeFile(
-    wb,
-    `${project.propertyName.replace(/\s+/g, '-')}-quotation.xlsx`,
-    { compression: true },
-  );
+  const filename = `${project.propertyName.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '')}-quotation.xlsx`;
+  const { Capacitor } = await import('@capacitor/core');
+  if (Capacitor.isNativePlatform()) {
+    const data = X.write(wb, {
+      bookType: 'xlsx',
+      type: 'base64',
+      compression: true,
+    });
+    await shareNativeFile(filename, data, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    return;
+  }
+  X.writeFile(wb, filename, { compression: true });
+}
+
+async function shareNativeFile(filename: string, data: string, _mimeType: string) {
+  const [{ Directory, Filesystem }, { Share }] = await Promise.all([
+    import('@capacitor/filesystem'),
+    import('@capacitor/share'),
+  ]);
+  const result = await Filesystem.writeFile({
+    path: `exports/${filename}`,
+    data,
+    directory: Directory.Cache,
+    recursive: true,
+  });
+  await Share.share({
+    title: filename,
+    text: 'Interix quotation export',
+    url: result.uri,
+    dialogTitle: 'Save or share quotation',
+  });
+}
+
+async function exportQuotationPdf(project: Project) {
+  const { Capacitor } = await import('@capacitor/core');
+  if (!Capacitor.isNativePlatform()) {
+    window.print();
+    return;
+  }
+
+  const element = document.querySelector<HTMLElement>('.document');
+  if (!element) throw new Error('Quotation preview is unavailable.');
+  await document.fonts?.ready;
+  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+    import('html2canvas'),
+    import('jspdf'),
+  ]);
+  const canvas = await html2canvas(element, {
+    backgroundColor: '#ffffff',
+    scale: Math.min(window.devicePixelRatio || 1, 2),
+    useCORS: true,
+    logging: false,
+    windowWidth: Math.max(element.scrollWidth, 1000),
+  });
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const renderedHeight = (canvas.height * pageWidth) / canvas.width;
+  const image = canvas.toDataURL('image/jpeg', 0.94);
+  let offset = 0;
+  let page = 0;
+  while (offset < renderedHeight) {
+    if (page > 0) pdf.addPage();
+    pdf.addImage(image, 'JPEG', 0, -offset, pageWidth, renderedHeight);
+    offset += pageHeight;
+    page += 1;
+  }
+  const filename = `${project.propertyName.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '')}-quotation.pdf`;
+  const data = pdf.output('datauristring').split(',')[1];
+  await shareNativeFile(filename, data, 'application/pdf');
 }
 function Builder({ s }: { s: Store }) {
   const { id } = useParams(),
@@ -877,6 +942,8 @@ function Builder({ s }: { s: Store }) {
     [itemModal, setItemModal] = useState(false),
     [compare, setCompare] = useState(false),
     [projectActions, setProjectActions] = useState(false),
+    [renameModal, setRenameModal] = useState(false),
+    [renameValue, setRenameValue] = useState(''),
     [deleteProject, setDeleteProject] = useState(false),
     [revisionModal, setRevisionModal] = useState(false),
     [revisionNote, setRevisionNote] = useState(''),
@@ -907,17 +974,18 @@ function Builder({ s }: { s: Store }) {
       ),
     }));
   function saveRev(note: string) {
-    const prior = s.revisions.filter((r) => r.projectId === p.id);
+    const project = p!;
+    const prior = s.revisions.filter((r) => r.projectId === project.id);
     s.setRevisions([
       ...s.revisions,
       {
         id: uid(),
-        projectId: p.id,
+        projectId: project.id,
         number: prior.length + 1,
         createdAt: new Date().toISOString(),
         total: tot.grandTotal,
         note,
-        snapshot: structuredClone(p),
+        snapshot: structuredClone(project),
       },
     ]);
     setRevisionModal(false);
@@ -986,9 +1054,8 @@ function Builder({ s }: { s: Store }) {
                 <span />
                 <button
                   onClick={() => {
-                    const name = prompt('Rename project', p.propertyName);
-                    if (name?.trim())
-                      update((q) => ({ ...q, propertyName: name.trim() }));
+                    setRenameValue(p.propertyName);
+                    setRenameModal(true);
                     setProjectActions(false);
                   }}
                 >
@@ -1326,6 +1393,37 @@ function Builder({ s }: { s: Store }) {
         </Modal>
       )}
       {compare && <Compare p={p} close={() => setCompare(false)} />}
+      {renameModal && (
+        <Modal title="Rename project" close={() => setRenameModal(false)}>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              const name = renameValue.trim();
+              if (!name) return;
+              update((q) => ({ ...q, propertyName: name }));
+              setRenameModal(false);
+            }}
+          >
+            <div className="form-grid single-column">
+              <label>
+                Property name
+                <Input
+                  value={renameValue}
+                  onChange={(event) => setRenameValue(event.target.value)}
+                />
+              </label>
+            </div>
+            <div className="actions">
+              <Button type="button" variant="outline" onClick={() => setRenameModal(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={!renameValue.trim()}>
+                Save name
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
       {revisionModal && (
         <Modal title="Save revision" close={() => setRevisionModal(false)}>
           <div className="form-grid single-column">
@@ -1901,7 +1999,7 @@ function Preview({ s }: { s: Store }) {
         ),
       );
   async function excel() {
-    await exportProjectExcel(p, s.settings);
+    await exportProjectExcel(p!, s.settings);
   }
   return (
     <div className="preview">
@@ -1916,7 +2014,7 @@ function Preview({ s }: { s: Store }) {
           <FileSpreadsheet />
           Export Excel
         </Button>
-        <Button onClick={() => window.print()}>
+        <Button onClick={() => void exportQuotationPdf(p)}>
           <Printer />
           Print / Save PDF
         </Button>

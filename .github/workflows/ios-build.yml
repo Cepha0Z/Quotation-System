@@ -21,7 +21,10 @@ jobs:
         run: npm ci
 
       - name: Build web app
-        run: npm run build
+        run: npm run build:ios
+
+      - name: Verify bundled web app
+        run: test -f dist/client/index.html
 
       - name: Install CocoaPods
         run: |
