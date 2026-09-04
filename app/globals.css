@@ -414,6 +414,17 @@ td small {
   overflow: auto;
   padding: 14px 10px;
 }
+.rooms,
+.summary {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.rooms::-webkit-scrollbar,
+.summary::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
 .rooms > header {
   display: flex;
   justify-content: space-between;
@@ -512,8 +523,25 @@ td small {
 .item-title {
   display: flex;
   align-items: center;
-  gap: 15px;
+  gap: 10px;
   flex: 1;
+}
+.item-image {
+  width: 64px;
+  height: 72px;
+  margin: 0;
+  flex: 0 0 64px;
+  overflow: hidden;
+  border: 1px solid #e2dfd7;
+  border-radius: 10px;
+  background: #ece9e1;
+  box-shadow: 0 3px 10px rgba(19, 46, 38, 0.08);
+}
+.item-image img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
 }
 .item-title > .item-copy {
   display: flex;
@@ -1091,6 +1119,7 @@ td small {
   gap: 7px;
   margin-top: 7px;
   min-height: 37px;
+  min-width: 0;
 }
 .quick-measure label {
   position: relative;
@@ -1191,6 +1220,7 @@ select,
   opacity: 1;
 }
 .item.off .item-title > .item-copy,
+.item.off .item-image,
 .item.off .item-total,
 .item.off .quick-measure {
   opacity: 0.58;
@@ -2282,6 +2312,20 @@ textarea {
   align-items: end;
   justify-content: space-between;
 }
+.room-identity {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.room-identity > img {
+  width: 84px;
+  height: 62px;
+  flex: 0 0 84px;
+  border: 1px solid #dfdcd4;
+  border-radius: 10px;
+  object-fit: cover;
+  box-shadow: 0 3px 12px rgba(19, 46, 38, 0.08);
+}
 .room-workspace > header h2 {
   margin: 4px 0 0;
   font:
@@ -2311,6 +2355,36 @@ textarea {
   border-color: #e3e1da;
   border-radius: 12px;
   box-shadow: 0 1px 4px rgba(19, 46, 38, 0.035);
+}
+.room-components .item > header {
+  min-height: 96px;
+  padding-block: 8px;
+}
+.room-components .edit-item {
+  min-width: 56px;
+  padding-inline: 10px;
+}
+.room-components .item-actions-wrap > button {
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+}
+@media (max-width: 760px) {
+  .item-image {
+    width: 58px;
+    height: 64px;
+    flex-basis: 58px;
+  }
+  .room-identity > img {
+    width: 68px;
+    height: 54px;
+    flex-basis: 68px;
+  }
+}
+@media (max-width: 520px) {
+  .room-identity > img {
+    display: none;
+  }
 }
 .room-components .item-editor {
   animation: reveal-editor 0.18s ease-out;
@@ -2562,7 +2636,7 @@ textarea {
 }
 @media (max-width: 1280px) {
   .quick-measure label {
-    width: 106px;
+    width: 84px;
   }
 }
 @media (max-width: 560px) {

@@ -86,6 +86,20 @@ const presets = [
   'Utility',
   'Other',
 ];
+const itemImage = (name: string) => {
+  const key = name.toLowerCase();
+  if (key.includes('false ceiling')) return '/item-images/false-ceiling.png';
+  if (key.includes('tv unit')) return '/item-images/tv-unit.png';
+  if (key.includes('mandir') || key.includes('pooja'))
+    return '/item-images/mandir.png';
+  if (key.includes('base cabinet')) return '/item-images/base-cabinets.png';
+  if (key.includes('wall cabinet')) return '/item-images/wall-cabinets.png';
+  if (key.includes('tall unit')) return '/item-images/tall-unit.png';
+  if (key.includes('wardrobe')) return '/item-images/wardrobe.png';
+  if (key.includes('bed back')) return '/item-images/bed-back-panel.png';
+  if (key.includes('study')) return '/item-images/study-unit.png';
+  return '/item-images/custom-joinery.png';
+};
 type Store = {
   hydrated: boolean;
   projects: Project[];
@@ -1031,9 +1045,16 @@ function Builder({ s }: { s: Store }) {
               </div>
               <section className="room-workspace">
                 <header>
-                  <div>
-                    <small>SELECTED ROOM</small>
-                    <h2>{room.name}</h2>
+                  <div className="room-identity">
+                    <img
+                      src={itemImage(room.items[0]?.name ?? '')}
+                      alt=""
+                      aria-hidden="true"
+                    />
+                    <div>
+                      <small>SELECTED ROOM</small>
+                      <h2>{room.name}</h2>
+                    </div>
                   </div>
                   <span>
                     <strong>{inr(roomTotal(room, p.defaultTier))}</strong>
@@ -1371,6 +1392,9 @@ function Item({
     <article className={'item ' + (!item.enabled ? 'off' : '')}>
       <header>
         <div className="item-title">
+          <figure className="item-image">
+            <img src={itemImage(item.name)} alt="" aria-hidden="true" />
+          </figure>
           <Switch
             checked={item.enabled}
             onCheckedChange={(v) => patch({ enabled: v })}
