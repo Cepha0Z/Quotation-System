@@ -1220,18 +1220,23 @@ select,
 [data-slot='switch-thumb'] {
   position: absolute;
   top: 1px;
-  left: 0;
+  left: 1px;
   width: 16px !important;
   height: 16px !important;
   margin: 0;
-  transform: translateX(1px) !important;
-  transition: transform 0.16s ease !important;
+  translate: none !important;
+  transform: none !important;
+  transition: left 0.16s ease !important;
 }
 [data-slot='switch'][data-checked] [data-slot='switch-thumb'] {
-  transform: translateX(14px) !important;
+  left: 15px;
+  translate: none !important;
+  transform: none !important;
 }
 [data-slot='switch'][data-unchecked] [data-slot='switch-thumb'] {
-  transform: translateX(1px) !important;
+  left: 1px;
+  translate: none !important;
+  transform: none !important;
 }
 .add-item,
 .rooms > button:last-child {
