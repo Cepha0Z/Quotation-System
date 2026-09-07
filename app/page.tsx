@@ -61,6 +61,7 @@ import type {
   QuoteItem,
   RateCardItem,
   Revision,
+  Room,
   Tier,
 } from '@/domain/types';
 import {
@@ -121,6 +122,8 @@ type Store = {
   storageError: string | null;
   projects: Project[];
   setProjects: (v: Project[]) => void;
+  deleteProject: (projectId: string) => Promise<void>;
+  deleteRoom: (projectId: string, roomId: string) => Promise<void>;
   rates: RateCardItem[];
   setRates: (v: RateCardItem[]) => void;
   settings: FirmSettings;
@@ -229,6 +232,46 @@ function useStore(): Store {
     setProjects: (v) => {
       sp(v);
       if (ready) queueWrite('projects', () => projectRepository.saveAll(v));
+    },
+    deleteProject: async (projectId) => {
+      sp((current) => current.filter((project) => project.id !== projectId));
+      if (!ready) return;
+      setSaveState('saving');
+      try {
+        await flushWrite('projects');
+        await projectRepository.delete(projectId);
+        setSaveState('saved');
+      } catch {
+        setSaveState('error');
+        setStorageError(
+          'The project was removed here, but could not be deleted from this device.',
+        );
+      }
+    },
+    deleteRoom: async (projectId, roomId) => {
+      sp((current) =>
+        current.map((project) =>
+          project.id === projectId
+            ? {
+                ...project,
+                updatedAt: new Date().toISOString(),
+                rooms: project.rooms.filter((room) => room.id !== roomId),
+              }
+            : project,
+        ),
+      );
+      if (!ready) return;
+      setSaveState('saving');
+      try {
+        await flushWrite('projects');
+        await projectRepository.deleteRoom(projectId, roomId);
+        setSaveState('saved');
+      } catch {
+        setSaveState('error');
+        setStorageError(
+          'The room was removed here, but could not be deleted from this device.',
+        );
+      }
     },
     rates,
     setRates: (v) => {
@@ -378,17 +421,18 @@ function NewProject({ s }: { s: Store }) {
   function create(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = new FormData(e.currentTarget),
+      layout = String(f.get('layout')),
       p: Project = {
         id: uid(),
         clientName: String(f.get('client')),
         propertyName: String(f.get('property')),
-        layout: String(f.get('layout')),
+        layout,
         carpetArea: Number(f.get('area')) || 0,
         defaultTier: String(f.get('tier')) as Tier,
         status: 'active',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-        rooms: [],
+        rooms: roomsForLayout(layout, s.rates),
         fees: [
           {
             id: uid(),
@@ -636,8 +680,55 @@ const fresh = (r?: RateCardItem): QuoteItem => ({
   rates: r?.rates ?? { standard: 1000, premium: 1500, luxury: 2000 },
   discount: 0,
   notes: '',
-  subUnits: r?.subUnits ?? [],
+  subUnits: structuredClone(r?.subUnits ?? []),
 });
+
+const layoutRooms: Record<string, string[]> = {
+  '1 BHK': ['Living Room', 'Kitchen', 'Master Bedroom'],
+  '2 BHK': ['Living Room', 'Kitchen', 'Master Bedroom', 'Bedroom 2'],
+  '3 BHK': [
+    'Living Room',
+    'Kitchen',
+    'Master Bedroom',
+    'Bedroom 2',
+    'Bedroom 3',
+  ],
+  '4 BHK': [
+    'Living Room',
+    'Kitchen',
+    'Master Bedroom',
+    'Bedroom 2',
+    'Bedroom 3',
+    'Guest Bedroom',
+  ],
+  '5 BHK': [
+    'Living Room',
+    'Kitchen',
+    'Master Bedroom',
+    'Bedroom 2',
+    'Bedroom 3',
+    'Kids Bedroom',
+    'Guest Bedroom',
+  ],
+};
+
+function roomsForLayout(layout: string, rates: RateCardItem[]): Room[] {
+  const rate = (name: string) => rates.find((item) => item.name === name);
+  const itemNamesForRoom = (name: string) => {
+    if (name === 'Living Room') return ['False Ceiling', 'TV Unit'];
+    if (name === 'Kitchen') return ['Base Cabinets', 'Wall Cabinets'];
+    return ['Wardrobe', 'Bed Back Panel'];
+  };
+
+  return (layoutRooms[layout] ?? []).map((name) => ({
+    id: uid(),
+    name,
+    items: itemNamesForRoom(name)
+      .map(rate)
+      .filter((item): item is RateCardItem => Boolean(item))
+      .map(fresh),
+  }));
+}
 
 async function exportProjectExcel(project: Project, settings: FirmSettings) {
   const X = await import('xlsx-js-style');
@@ -1170,6 +1261,25 @@ function Builder({ s }: { s: Store }) {
                 >
                   <ChevronDown />
                 </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const remainingRooms = p.rooms.filter(
+                      (candidate) => candidate.id !== r.id,
+                    );
+                    if (room?.id === r.id) {
+                      setRid(
+                        remainingRooms[Math.min(i, remainingRooms.length - 1)]
+                          ?.id ?? '',
+                      );
+                    }
+                    void s.deleteRoom(p.id, r.id);
+                  }}
+                  aria-label={`Delete ${r.name}`}
+                  title={`Delete ${r.name}`}
+                >
+                  <Trash2 />
+                </button>
               </div>
             </article>
           ))}
@@ -1479,9 +1589,7 @@ function Builder({ s }: { s: Store }) {
             <Button
               variant="destructive"
               onClick={() => {
-                s.setProjects(
-                  s.projects.filter((project) => project.id !== p.id),
-                );
+                void s.deleteProject(p.id);
                 s.setRevisions(
                   s.revisions.filter((revision) => revision.projectId !== p.id),
                 );
