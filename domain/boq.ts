@@ -9,6 +9,7 @@ import type {
 export const WORK_TYPES = [
   'Civil Work',
   'Millwork',
+  'Millwork MS',
   'Bought Out',
   'Electrical',
   'Plumbing',

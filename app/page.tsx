@@ -13,6 +13,7 @@ import {
   BarChart3,
   BriefcaseBusiness,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   ChevronUp,
   CircleDollarSign,
@@ -1025,310 +1026,14 @@ function roomsForLayout(layout: string, rates: RateCardItem[]): Room[] {
   }));
 }
 
-async function exportProjectExcel(project: Project, settings: FirmSettings) {
-  const X = await import('xlsx-js-style');
+export async function exportProjectExcel(
+  project: Project,
+  settings: FirmSettings,
+  saveBytes?: (filename: string, data: Uint8Array) => void | Promise<void>,
+) {
+  const XModule = await import('xlsx-js-style');
+  const X = (XModule.default ?? XModule) as typeof import('xlsx-js-style');
   const totals = quoteTotals(project);
-  const rows: (string | number)[][] = [
-    [settings.letterheadName],
-    [`${settings.website} · ${settings.email}`],
-    [],
-    [`QUOTATION FOR ${project.clientName.toUpperCase()}`],
-    [
-      `${project.propertyName}  ·  ${project.layout}  ·  ${project.carpetArea.toLocaleString('en-IN')} sqft  ·  ${tl(project.defaultTier)}`,
-    ],
-    [
-      `Quotation date: ${new Date().toLocaleDateString('en-IN')}  ·  Reference: QT-${project.id.slice(0, 6).toUpperCase()}`,
-    ],
-    [],
-  ];
-  const workTypeRows: number[] = [],
-    floorHeaderRows: number[] = [],
-    roomHeaderRows: number[] = [],
-    tableHeaderRows: number[] = [],
-    moneyRows: number[] = [];
-  const workTypes = [
-    ...WORK_TYPES,
-    ...new Set(
-      project.rooms.flatMap((space) =>
-        space.items.map((item) => item.workType ?? 'Millwork'),
-      ),
-    ),
-  ];
-  [...new Set(workTypes)].forEach((workType) => {
-    const spacesForWork = project.rooms.filter((space) =>
-      space.items.some(
-        (item) => item.enabled && (item.workType ?? 'Millwork') === workType,
-      ),
-    );
-    if (!spacesForWork.length) return;
-    workTypeRows.push(rows.length);
-    rows.push(['', workType.toUpperCase(), '', '', '', '', '']);
-    (project.floors ?? []).forEach((floor) => {
-      const floorSpaces = spacesForWork.filter(
-        (space) => space.floorId === floor.id,
-      );
-      if (!floorSpaces.length) return;
-      floorHeaderRows.push(rows.length);
-      rows.push(['', floor.name.toUpperCase(), '', '', '', '', '']);
-      floorSpaces.forEach((space) => {
-        const items = space.items.filter(
-          (item) => item.enabled && (item.workType ?? 'Millwork') === workType,
-        );
-        roomHeaderRows.push(rows.length);
-        rows.push(['', space.name, '', '', '', '', '']);
-        tableHeaderRows.push(rows.length);
-        rows.push([
-          'Sl.no',
-          'Particulars',
-          'HSN Code',
-          'Qty',
-          'Unit',
-          'Rate',
-          'Amt',
-        ]);
-        items.forEach((item, index) => {
-          moneyRows.push(rows.length);
-          const dimensions =
-            item.measureMode === 'dimensions'
-              ? [
-                  item.length && `${item.length}L`,
-                  item.width && `${item.width}D`,
-                  item.height && `${item.height}H`,
-                ]
-                  .filter(Boolean)
-                  .join(' × ')
-              : '';
-          rows.push([
-            index + 1,
-            `${item.name}${item.description ? `: ${item.description}` : ''}${dimensions ? `\nSize: ${dimensions} ${item.dimensionUnit ?? 'ft'}` : ''}${item.notes ? `\n${item.notes}` : ''}`,
-            item.hsnCode ?? '',
-            item.pricingMode === 'lump-sum' ? 1 : itemMeasure(item),
-            item.customUnit ||
-              item.unit ||
-              unitForMeasurement(item.measurementType),
-            itemBaseRate(item, project.defaultTier),
-            itemTotal(item, project.defaultTier),
-          ]);
-          item.subUnits
-            .filter((component) => component.enabled)
-            .forEach((component) => {
-              rows.push([
-                '',
-                `   Component: ${component.name}`,
-                '',
-                '',
-                '',
-                component.rate,
-                '',
-              ]);
-            });
-        });
-      });
-    });
-    rows.push([]);
-  });
-  const summaryStart = rows.length;
-  rows.push(
-    ['FINANCIAL SUMMARY'],
-    ['Interior Work', '', '', '', '', '', totals.interior],
-    ...totals.fees.map((fee) => [
-      fee.name,
-      '',
-      '',
-      '',
-      '',
-      fee.original - fee.total ? -(fee.original - fee.total) : '',
-      fee.total,
-    ]),
-    ['Subtotal', '', '', '', '', '', totals.subtotal],
-    ['GRAND TOTAL', '', '', '', '', '', totals.grandTotal],
-    [],
-    [settings.quotationNotes],
-    [settings.terms],
-  );
-  const ws = X.utils.aoa_to_sheet(rows);
-  const deep = '173A31',
-    warm = 'F4F1EA',
-    line = 'D9DDD8',
-    accent = 'B77850',
-    charcoal = '26332E';
-  ws['!cols'] = [
-    { wch: 24 },
-    { wch: 38 },
-    { wch: 18 },
-    { wch: 15 },
-    { wch: 15 },
-    { wch: 15 },
-    { wch: 19 },
-  ];
-  ws['!rows'] = rows.map((_, i) => ({
-    hpt:
-      i === 0
-        ? 31
-        : moneyRows.includes(i)
-          ? 48
-          : roomHeaderRows.includes(i)
-            ? 25
-            : 21,
-  }));
-  ws['!merges'] = [
-    0,
-    1,
-    3,
-    4,
-    5,
-    summaryStart,
-    rows.length - 2,
-    rows.length - 1,
-  ].map((r) => ({ s: { r, c: 0 }, e: { r, c: r === summaryStart ? 6 : 6 } }));
-  ws['!freeze'] = {
-    xSplit: 0,
-    ySplit: 7,
-    topLeftCell: 'A8',
-    activePane: 'bottomLeft',
-    state: 'frozen',
-  };
-  ws['!autofilter'] = { ref: `A${tableHeaderRows[0] + 1}:G${rows.length}` };
-  ws['!margins'] = {
-    left: 0.35,
-    right: 0.35,
-    top: 0.5,
-    bottom: 0.5,
-    header: 0.2,
-    footer: 0.2,
-  };
-  ws['!pageSetup'] = {
-    orientation: 'landscape',
-    fitToWidth: 1,
-    fitToHeight: 0,
-    paperSize: 9,
-  };
-  const range = X.utils.decode_range(ws['!ref']!);
-  for (let r = range.s.r; r <= range.e.r; r++)
-    for (let c = 0; c <= 6; c++) {
-      const address = X.utils.encode_cell({ r, c });
-      const cell = ws[address] ?? (ws[address] = { t: 's', v: '' });
-      cell.s = {
-        fill: { fgColor: { rgb: 'FFFFFF' } },
-        font: { name: 'Aptos', sz: 10, color: { rgb: charcoal } },
-        alignment: {
-          vertical: 'center',
-          horizontal: c >= 4 ? 'right' : 'left',
-          wrapText: true,
-        },
-        border: { bottom: { style: 'hair', color: { rgb: line } } },
-      };
-      if (c >= 4 && typeof cell.v === 'number')
-        cell.s.numFmt = '₹#,##0;[Red]-₹#,##0';
-    }
-  ws.A1.s = {
-    fill: { fgColor: { rgb: 'FFFFFF' } },
-    font: { name: 'Aptos Display', sz: 22, bold: true, color: { rgb: deep } },
-    alignment: { vertical: 'center' },
-  };
-  ws.A2.s = {
-    fill: { fgColor: { rgb: 'FFFFFF' } },
-    font: { name: 'Aptos', sz: 9, color: { rgb: '65716C' } },
-    alignment: { vertical: 'center' },
-  };
-  ws.A4.s = {
-    fill: { fgColor: { rgb: 'FFFFFF' } },
-    font: {
-      name: 'Aptos Display',
-      sz: 16,
-      bold: true,
-      color: { rgb: charcoal },
-    },
-    alignment: { vertical: 'center' },
-  };
-  ws.A5.s = {
-    fill: { fgColor: { rgb: 'FFFFFF' } },
-    font: { name: 'Aptos', sz: 11, bold: true, color: { rgb: accent } },
-    alignment: { vertical: 'center' },
-  };
-  [...workTypeRows, ...floorHeaderRows, ...roomHeaderRows].forEach((r) => {
-    for (let c = 0; c <= 6; c++) {
-      const cell =
-        ws[X.utils.encode_cell({ r, c })] ??
-        (ws[X.utils.encode_cell({ r, c })] = { t: 's', v: '' });
-      cell.s = {
-        fill: {
-          fgColor: {
-            rgb: workTypeRows.includes(r)
-              ? deep
-              : floorHeaderRows.includes(r)
-                ? accent
-                : warm,
-          },
-        },
-        font: {
-          name: 'Aptos',
-          sz: 11,
-          bold: true,
-          color: {
-            rgb:
-              workTypeRows.includes(r) || floorHeaderRows.includes(r)
-                ? 'FFFFFF'
-                : deep,
-          },
-        },
-        alignment: {
-          vertical: 'center',
-          horizontal: c === 6 ? 'right' : 'left',
-        },
-        border: { bottom: { style: 'medium', color: { rgb: accent } } },
-        numFmt: c === 6 ? '₹#,##0' : undefined,
-      };
-    }
-  });
-  tableHeaderRows.forEach((r) => {
-    for (let c = 0; c <= 6; c++) {
-      const cell = ws[X.utils.encode_cell({ r, c })];
-      cell.s = {
-        fill: { fgColor: { rgb: deep } },
-        font: { name: 'Aptos', sz: 9, bold: true, color: { rgb: 'FFFFFF' } },
-        alignment: {
-          vertical: 'center',
-          horizontal: c >= 4 ? 'right' : 'left',
-        },
-        border: { bottom: { style: 'thin', color: { rgb: deep } } },
-      };
-    }
-  });
-  for (let r = summaryStart; r <= summaryStart + 6; r++) {
-    for (let c = 0; c <= 6; c++) {
-      const cell = ws[X.utils.encode_cell({ r, c })];
-      if (!cell) continue;
-      cell.s = {
-        font: {
-          name: 'Aptos',
-          sz: r === summaryStart + 6 ? 13 : 10,
-          bold:
-            r === summaryStart ||
-            r === summaryStart + 5 ||
-            r === summaryStart + 6,
-          color: { rgb: r === summaryStart ? 'FFFFFF' : deep },
-        },
-        fill:
-          r === summaryStart
-            ? { fgColor: { rgb: deep } }
-            : r === summaryStart + 6
-              ? { fgColor: { rgb: warm } }
-              : { fgColor: { rgb: 'FFFFFF' } },
-        alignment: {
-          vertical: 'center',
-          horizontal: c === 6 ? 'right' : 'left',
-        },
-        border: {
-          bottom: {
-            style: r === summaryStart + 6 ? 'medium' : 'thin',
-            color: { rgb: r === summaryStart + 6 ? accent : line },
-          },
-        },
-        numFmt: c === 6 ? '₹#,##0;[Red]-₹#,##0' : undefined,
-      };
-    }
-  }
   const wb = X.utils.book_new();
   wb.Props = {
     Title: `Quotation for ${project.clientName}`,
@@ -1336,8 +1041,486 @@ async function exportProjectExcel(project: Project, settings: FirmSettings) {
     Author: settings.letterheadName,
     Company: settings.firmName,
   };
-  X.utils.book_append_sheet(wb, ws, 'Quotation');
+  const line = 'C8CCC9';
+  const softLine = 'E2E4E2';
+  const ink = '222725';
+  const muted = '68706C';
+  const floorFill = 'E7ECE9';
+  const spaceFill = 'F4F1EA';
+  const totalFill = 'ECEFEA';
+  const headerFill = 'F0F1EF';
+  const currencyFormat = '₹#,##0.00;[Red]-₹#,##0.00';
+  const quantityFormat = '#,##0.00';
+  const baseRows = () => [
+    [settings.letterheadName, '', '', '', '', '', ''],
+    [
+      [settings.website, settings.email].filter(Boolean).join(' · '),
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+    ],
+    ['', '', '', '', '', '', ''],
+    ['BOQ / COSTING FOR PROJECT', '', '', '', '', '', ''],
+    [`${project.clientName} · ${project.propertyName}`, '', '', '', '', '', ''],
+    [
+      `${project.layout} · ${project.carpetArea.toLocaleString('en-IN')} sq.ft · ${tl(project.defaultTier)} · ${new Date().toLocaleDateString('en-IN')}`,
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+    ],
+    ['', '', '', '', '', '', ''],
+  ];
+  const styleSheet = (
+    ws: Record<string, unknown>,
+    rows: (string | number)[][],
+    options: {
+      floorRows?: number[];
+      spaceRows?: number[];
+      itemRows?: number[];
+      subtotalRows?: number[];
+      grandTotalRows?: number[];
+      headerRows?: number[];
+      mergedRows?: number[];
+    } = {},
+  ) => {
+    const floorRows = options.floorRows ?? [];
+    const spaceRows = options.spaceRows ?? [];
+    const itemRows = options.itemRows ?? [];
+    const subtotalRows = options.subtotalRows ?? [];
+    const grandTotalRows = options.grandTotalRows ?? [];
+    const headerRows = options.headerRows ?? [];
+    const mergedRows = options.mergedRows ?? [0, 1, 3, 4, 5];
+    const ref = ws['!ref'] as string;
+    const range = X.utils.decode_range(ref);
+    for (let r = range.s.r; r <= range.e.r; r += 1) {
+      for (let c = 0; c <= 6; c += 1) {
+        const address = X.utils.encode_cell({ r, c });
+        const cell =
+          (ws[address] as Record<string, unknown> | undefined) ??
+          ((ws[address] = { t: 's', v: '' }) as Record<string, unknown>);
+        cell.s = {
+          fill: { fgColor: { rgb: 'FFFFFF' } },
+          font: { name: 'Century Gothic', sz: 10, color: { rgb: ink } },
+          alignment: {
+            vertical: itemRows.includes(r) ? 'top' : 'center',
+            horizontal:
+              c === 0 || c === 2 || c === 4
+                ? 'center'
+                : c >= 3
+                  ? 'right'
+                  : 'left',
+            wrapText: true,
+          },
+          border:
+            itemRows.includes(r) || headerRows.includes(r)
+              ? {
+                  top: { style: 'thin', color: { rgb: softLine } },
+                  bottom: { style: 'thin', color: { rgb: softLine } },
+                  left: { style: 'thin', color: { rgb: softLine } },
+                  right: { style: 'thin', color: { rgb: softLine } },
+                }
+              : { bottom: { style: 'hair', color: { rgb: softLine } } },
+        };
+        if (c === 3 && typeof cell.v === 'number')
+          (cell.s as Record<string, unknown>).numFmt = quantityFormat;
+        if ((c === 5 || c === 6) && typeof cell.v === 'number')
+          (cell.s as Record<string, unknown>).numFmt = currencyFormat;
+      }
+    }
+    mergedRows.forEach((r) => {
+      const cell = ws[X.utils.encode_cell({ r, c: 0 })] as Record<
+        string,
+        unknown
+      >;
+      if (!cell) return;
+      cell.s = {
+        fill: { fgColor: { rgb: 'FFFFFF' } },
+        font: {
+          name: 'Century Gothic',
+          sz: r === 0 ? 17 : r === 3 ? 13 : 10,
+          bold: r === 0 || r === 3 || r === 4,
+          color: { rgb: ink },
+        },
+        alignment: {
+          vertical: 'center',
+          horizontal: r === 3 ? 'center' : 'left',
+          wrapText: true,
+        },
+        border: {
+          bottom: { style: r === 3 ? 'medium' : 'hair', color: { rgb: line } },
+        },
+      };
+    });
+    headerRows.forEach((r) => {
+      for (let c = 0; c <= 6; c += 1) {
+        const cell = ws[X.utils.encode_cell({ r, c })] as Record<
+          string,
+          unknown
+        >;
+        cell.s = {
+          fill: { fgColor: { rgb: headerFill } },
+          font: {
+            name: 'Century Gothic',
+            sz: 10,
+            bold: true,
+            color: { rgb: ink },
+          },
+          alignment: {
+            vertical: 'center',
+            horizontal: 'center',
+            wrapText: true,
+          },
+          border: {
+            top: { style: 'medium', color: { rgb: line } },
+            bottom: { style: 'medium', color: { rgb: line } },
+            left: { style: 'thin', color: { rgb: line } },
+            right: { style: 'thin', color: { rgb: line } },
+          },
+        };
+      }
+    });
+    floorRows.forEach((r) => {
+      for (let c = 0; c <= 6; c += 1) {
+        const cell = ws[X.utils.encode_cell({ r, c })] as Record<
+          string,
+          unknown
+        >;
+        cell.s = {
+          fill: { fgColor: { rgb: floorFill } },
+          font: {
+            name: 'Century Gothic',
+            sz: 11,
+            bold: true,
+            color: { rgb: ink },
+          },
+          alignment: {
+            vertical: 'center',
+            horizontal: c === 6 ? 'right' : 'left',
+          },
+          border: { bottom: { style: 'medium', color: { rgb: line } } },
+          numFmt: c === 6 ? currencyFormat : undefined,
+        };
+      }
+    });
+    spaceRows.forEach((r) => {
+      for (let c = 0; c <= 6; c += 1) {
+        const cell = ws[X.utils.encode_cell({ r, c })] as Record<
+          string,
+          unknown
+        >;
+        cell.s = {
+          fill: { fgColor: { rgb: spaceFill } },
+          font: {
+            name: 'Century Gothic',
+            sz: 10,
+            bold: true,
+            color: { rgb: ink },
+          },
+          alignment: {
+            vertical: 'center',
+            horizontal: c === 6 ? 'right' : 'left',
+          },
+          border: { bottom: { style: 'thin', color: { rgb: line } } },
+          numFmt: c === 6 ? currencyFormat : undefined,
+        };
+      }
+    });
+    subtotalRows.forEach((r) => {
+      for (let c = 0; c <= 6; c += 1) {
+        const cell = ws[X.utils.encode_cell({ r, c })] as Record<
+          string,
+          unknown
+        >;
+        cell.s = {
+          fill: { fgColor: { rgb: 'FFFFFF' } },
+          font: {
+            name: 'Century Gothic',
+            sz: 10,
+            bold: true,
+            color: { rgb: ink },
+          },
+          alignment: {
+            vertical: 'center',
+            horizontal: c === 6 ? 'right' : 'left',
+          },
+          border: { top: { style: 'thin', color: { rgb: line } } },
+          numFmt: c === 6 ? currencyFormat : undefined,
+        };
+      }
+    });
+    grandTotalRows.forEach((r) => {
+      for (let c = 0; c <= 6; c += 1) {
+        const cell = ws[X.utils.encode_cell({ r, c })] as Record<
+          string,
+          unknown
+        >;
+        cell.s = {
+          fill: { fgColor: { rgb: totalFill } },
+          font: {
+            name: 'Century Gothic',
+            sz: 11,
+            bold: true,
+            color: { rgb: ink },
+          },
+          alignment: {
+            vertical: 'center',
+            horizontal: c === 6 ? 'right' : 'left',
+          },
+          border: {
+            top: { style: 'double', color: { rgb: line } },
+            bottom: { style: 'medium', color: { rgb: line } },
+          },
+          numFmt: c === 6 ? currencyFormat : undefined,
+        };
+      }
+    });
+    ws['!cols'] = [
+      { wch: 8 },
+      { wch: 64 },
+      { wch: 14 },
+      { wch: 12 },
+      { wch: 12 },
+      { wch: 15 },
+      { wch: 18 },
+    ];
+    ws['!rows'] = rows.map((row, r) => ({
+      hpt: itemRows.includes(r)
+        ? Math.min(
+            104,
+            Math.max(42, String(row[1] ?? '').split('\n').length * 17 + 18),
+          )
+        : r === 0
+          ? 28
+          : floorRows.includes(r)
+            ? 25
+            : spaceRows.includes(r)
+              ? 23
+              : 20,
+    }));
+    ws['!merges'] = mergedRows.map((r) => ({ s: { r, c: 0 }, e: { r, c: 6 } }));
+    ws['!freeze'] = {
+      xSplit: 0,
+      ySplit: 8,
+      topLeftCell: 'A9',
+      activePane: 'bottomLeft',
+      state: 'frozen',
+    };
+    ws['!margins'] = {
+      left: 0.3,
+      right: 0.3,
+      top: 0.45,
+      bottom: 0.45,
+      header: 0.2,
+      footer: 0.2,
+    };
+    ws['!pageSetup'] = {
+      orientation: 'portrait',
+      fitToWidth: 1,
+      fitToHeight: 0,
+      paperSize: 9,
+    };
+  };
+  const discoveredWorkTypes = [
+    ...new Set(
+      project.rooms.flatMap((space) =>
+        space.items
+          .filter((item) => item.enabled)
+          .map((item) => item.workType ?? 'Millwork'),
+      ),
+    ),
+  ];
+  const workTypes = [
+    ...WORK_TYPES.filter((workType) => discoveredWorkTypes.includes(workType)),
+    ...discoveredWorkTypes.filter(
+      (workType) =>
+        !WORK_TYPES.includes(workType as (typeof WORK_TYPES)[number]),
+    ),
+  ];
+  const workTypeTotals = new Map(
+    workTypes.map((workType) => [
+      workType,
+      project.rooms.reduce(
+        (sum, space) =>
+          sum +
+          space.items
+            .filter(
+              (item) =>
+                item.enabled && (item.workType ?? 'Millwork') === workType,
+            )
+            .reduce(
+              (itemSum, item) => itemSum + itemTotal(item, project.defaultTier),
+              0,
+            ),
+        0,
+      ),
+    ]),
+  );
+  const summaryRows: (string | number)[][] = [
+    ...baseRows(),
+    ['Work Type', '', '', '', '', '', 'Amount'],
+    ...workTypes.map((workType) => [
+      workType,
+      '',
+      '',
+      '',
+      '',
+      '',
+      workTypeTotals.get(workType) ?? 0,
+    ]),
+    ['', '', '', '', '', '', ''],
+    ['Interior Work', '', '', '', '', '', totals.interior],
+    ...totals.fees.map((fee) => [fee.name, '', '', '', '', '', fee.total]),
+    ['Subtotal', '', '', '', '', '', totals.subtotal],
+    ['Project discount', '', '', '', '', '', -totals.discount],
+    ['PROJECT TOTAL', '', '', '', '', '', totals.grandTotal],
+    ['', '', '', '', '', '', ''],
+    [settings.quotationNotes, '', '', '', '', '', ''],
+    [settings.terms, '', '', '', '', '', ''],
+  ];
+  const summaryHeaderRow = 7;
+  const summaryGrandRow = summaryRows.length - 4;
+  const summaryWs = X.utils.aoa_to_sheet(summaryRows);
+  styleSheet(summaryWs, summaryRows, {
+    headerRows: [summaryHeaderRow],
+    subtotalRows: [summaryGrandRow - 2, summaryGrandRow - 1],
+    grandTotalRows: [summaryGrandRow],
+    mergedRows: [0, 1, 3, 4, 5, summaryRows.length - 2, summaryRows.length - 1],
+  });
+  X.utils.book_append_sheet(wb, summaryWs, 'Summary');
+
+  const usedSheetNames = new Set<string>(['Summary']);
+  const safeSheetName = (workType: string) => {
+    const base =
+      workType
+        .replace(/[\\/?*\[\]:]/g, ' & ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 31) || 'BOQ';
+    let name = base;
+    let suffix = 2;
+    while (usedSheetNames.has(name)) {
+      const marker = ` ${suffix}`;
+      name = `${base.slice(0, 31 - marker.length)}${marker}`;
+      suffix += 1;
+    }
+    usedSheetNames.add(name);
+    return name;
+  };
+  workTypes.forEach((workType) => {
+    const rows: (string | number)[][] = [
+      ...baseRows(),
+      ['Sl.no', 'Particulars', 'HSN Code', 'Qty', 'Unit', 'Rate', 'Amount'],
+    ];
+    const floorRows: number[] = [];
+    const spaceRows: number[] = [];
+    const itemRows: number[] = [];
+    const subtotalRows: number[] = [];
+    let serial = 1;
+    (project.floors ?? []).forEach((floor) => {
+      const floorSpaces = project.rooms
+        .filter((space) => space.floorId === floor.id)
+        .map((space) => ({
+          space,
+          items: space.items.filter(
+            (item) =>
+              item.enabled && (item.workType ?? 'Millwork') === workType,
+          ),
+        }))
+        .filter(({ items }) => items.length > 0);
+      if (!floorSpaces.length) return;
+      floorRows.push(rows.length);
+      rows.push(['', floor.name.toUpperCase(), '', '', '', '', '']);
+      let floorTotal = 0;
+      floorSpaces.forEach(({ space, items }) => {
+        spaceRows.push(rows.length);
+        rows.push(['', space.name, '', '', '', '', '']);
+        let spaceTotal = 0;
+        items.forEach((item) => {
+          const dimensions =
+            item.measureMode === 'dimensions'
+              ? [
+                  item.length ? `${item.length}L` : '',
+                  item.width ? `${item.width}D` : '',
+                  item.height ? `${item.height}H` : '',
+                ]
+                  .filter(Boolean)
+                  .join(' × ')
+              : '';
+          const components = item.subUnits
+            .filter((component) => component.enabled)
+            .map((component) => `${component.name} (${inr(component.rate)})`)
+            .join(', ');
+          const particulars = [
+            `${item.name}${item.description ? `: ${item.description}` : ''}`,
+            dimensions
+              ? `Size: ${dimensions} ${item.dimensionUnit ?? 'ft'}`
+              : '',
+            components ? `Components: ${components}` : '',
+            item.notes ?? '',
+          ]
+            .filter(Boolean)
+            .join('\n');
+          const amount = itemTotal(item, project.defaultTier);
+          itemRows.push(rows.length);
+          rows.push([
+            serial,
+            particulars,
+            item.hsnCode ?? '',
+            item.pricingMode === 'lump-sum' ? 1 : itemMeasure(item),
+            item.customUnit ||
+              item.unit ||
+              unitForMeasurement(item.measurementType),
+            itemBaseRate(item, project.defaultTier),
+            amount,
+          ]);
+          serial += 1;
+          spaceTotal += amount;
+        });
+        subtotalRows.push(rows.length);
+        rows.push(['', `${space.name} subtotal`, '', '', '', '', spaceTotal]);
+        floorTotal += spaceTotal;
+      });
+      subtotalRows.push(rows.length);
+      rows.push(['', `${floor.name} subtotal`, '', '', '', '', floorTotal]);
+      rows.push(['', '', '', '', '', '', '']);
+    });
+    const totalRow = rows.length;
+    rows.push([
+      '',
+      `${workType.toUpperCase()} TOTAL`,
+      '',
+      '',
+      '',
+      '',
+      workTypeTotals.get(workType) ?? 0,
+    ]);
+    const ws = X.utils.aoa_to_sheet(rows);
+    styleSheet(ws, rows, {
+      floorRows,
+      spaceRows,
+      itemRows,
+      subtotalRows,
+      grandTotalRows: [totalRow],
+      headerRows: [7],
+    });
+    X.utils.book_append_sheet(wb, ws, safeSheetName(workType));
+  });
   const filename = `${project.propertyName.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '')}-quotation.xlsx`;
+  if (saveBytes) {
+    const data = X.write(wb, {
+      bookType: 'xlsx',
+      type: 'array',
+      compression: true,
+    });
+    await saveBytes(filename, new Uint8Array(data));
+    return;
+  }
   const { Capacitor } = await import('@capacitor/core');
   if (Capacitor.isNativePlatform()) {
     const data = X.write(wb, {
@@ -1352,7 +1535,21 @@ async function exportProjectExcel(project: Project, settings: FirmSettings) {
     );
     return;
   }
-  X.writeFile(wb, filename, { compression: true });
+  const data = X.write(wb, {
+    bookType: 'xlsx',
+    type: 'array',
+    compression: true,
+  });
+  const url = URL.createObjectURL(
+    new Blob([data], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    }),
+  );
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 async function shareNativeFile(
@@ -1433,6 +1630,7 @@ function Builder({ s }: { s: Store }) {
     [editingItemId, setEditingItemId] = useState<string | null>(null),
     [selectedWorkType, setSelectedWorkType] = useState('All'),
     [selectedFloorId, setSelectedFloorId] = useState(p?.floors?.[0]?.id ?? ''),
+    [mobileSpaceDetail, setMobileSpaceDetail] = useState(false),
     [structureModal, setStructureModal] = useState(false),
     [roomsOpen, setRoomsOpen] = useState(() => window.innerWidth > 1100),
     [summaryOpen, setSummaryOpen] = useState(() => window.innerWidth > 1100);
@@ -1451,6 +1649,21 @@ function Builder({ s }: { s: Store }) {
         ),
       ),
     tot = quoteTotals(p);
+  const roomWorkTypeItems = (space: Room) =>
+    space.items.filter(
+      (item) =>
+        item.enabled &&
+        (selectedWorkType === 'All' || item.workType === selectedWorkType),
+    );
+  const roomWorkTypeTotal = (space: Room) =>
+    roomWorkTypeItems(space).reduce(
+      (sum, item) => sum + itemTotal(item, p.defaultTier),
+      0,
+    );
+  const workTypeOptions = ['All', ...WORK_TYPES];
+  const selectedFloor = projectFloors.find(
+    (floor) => floor.id === selectedFloorId,
+  );
   const patchItem = (iid: string, x: Partial<QuoteItem>) =>
     update((q) => ({
       ...q,
@@ -1594,53 +1807,81 @@ function Builder({ s }: { s: Store }) {
           </div>
         </div>
       </header>
-      <nav className="boq-drilldown" aria-label="BOQ filters">
-        <div>
-          <small>VIEW BY WORK TYPE</small>
-          <div>
-            {['All', ...WORK_TYPES].map((workType) => (
+      <nav className="boq-drilldown" aria-label="BOQ navigation">
+        <div className="boq-filter-group">
+          <small>WORK TYPE</small>
+          <select
+            className="boq-mobile-select"
+            aria-label="Work type"
+            value={selectedWorkType}
+            onChange={(event) => {
+              setSelectedWorkType(event.target.value);
+              setMobileSpaceDetail(false);
+            }}
+          >
+            {workTypeOptions.map((workType) => (
+              <option key={workType}>{workType}</option>
+            ))}
+          </select>
+          <div className="boq-chip-row">
+            {workTypeOptions.map((workType) => (
               <button
                 className={selectedWorkType === workType ? 'active' : ''}
                 key={workType}
-                onClick={() => setSelectedWorkType(workType)}
+                onClick={() => {
+                  setSelectedWorkType(workType);
+                  setMobileSpaceDetail(false);
+                }}
               >
                 {workType}
-                <span>
-                  {inr(
-                    p.rooms.reduce(
-                      (sum, space) =>
-                        sum +
-                        space.items
-                          .filter(
-                            (item) =>
-                              item.enabled &&
-                              (workType === 'All' ||
-                                item.workType === workType),
-                          )
-                          .reduce(
-                            (itemSum, item) =>
-                              itemSum + itemTotal(item, p.defaultTier),
-                            0,
-                          ),
-                      0,
-                    ),
-                  )}
-                </span>
               </button>
             ))}
           </div>
         </div>
-        <div>
-          <small>FLOOR</small>
-          <div>
+        <div className="boq-filter-group floor-filter-group">
+          <span className="boq-filter-label">
+            <small>FLOOR</small>
+            <button
+              className="structure-action"
+              onClick={() => setStructureModal(true)}
+              aria-label="Edit floors and spaces"
+              title="Edit floors and spaces"
+            >
+              <Settings />
+              <span>Structure</span>
+            </button>
+          </span>
+          <select
+            className="boq-mobile-select"
+            aria-label="Floor"
+            value={selectedFloorId}
+            onChange={(event) => {
+              const floorId = event.target.value;
+              setSelectedFloorId(floorId);
+              setRid(
+                p.rooms.find((space) => !floorId || space.floorId === floorId)
+                  ?.id ?? '',
+              );
+              setMobileSpaceDetail(false);
+            }}
+          >
+            <option value="">All Floors</option>
+            {projectFloors.map((floor) => (
+              <option value={floor.id} key={floor.id}>
+                {floor.name}
+              </option>
+            ))}
+          </select>
+          <div className="boq-chip-row">
             <button
               className={!selectedFloorId ? 'active' : ''}
               onClick={() => {
                 setSelectedFloorId('');
                 setRid(p.rooms[0]?.id ?? '');
+                setMobileSpaceDetail(false);
               }}
             >
-              All Floors<span>{inr(quoteTotals(p).interior)}</span>
+              All Floors
             </button>
             {projectFloors.map((floor) => (
               <button
@@ -1652,29 +1893,55 @@ function Builder({ s }: { s: Store }) {
                     p.rooms.find((space) => space.floorId === floor.id)?.id ??
                       '',
                   );
+                  setMobileSpaceDetail(false);
                 }}
               >
                 {floor.name}
-                <span>
-                  {inr(
-                    p.rooms
-                      .filter((space) => space.floorId === floor.id)
-                      .reduce(
-                        (sum, space) => sum + roomTotal(space, p.defaultTier),
-                        0,
-                      ),
-                  )}
-                </span>
               </button>
             ))}
-            <button onClick={() => setStructureModal(true)}>
-              <Settings /> Structure
-            </button>
           </div>
         </div>
       </nav>
+      <section
+        className={`mobile-space-browser ${mobileSpaceDetail ? 'detail-open' : ''}`}
+      >
+        <header>
+          <div>
+            <small>{selectedFloor?.name ?? 'All floors'}</small>
+            <h2>Spaces</h2>
+          </div>
+          <span>{selectedWorkType}</span>
+        </header>
+        <div>
+          {visibleRooms.map((space) => {
+            const items = roomWorkTypeItems(space);
+            return (
+              <button
+                key={space.id}
+                onClick={() => {
+                  setRid(space.id);
+                  setRoomsOpen(false);
+                  setMobileSpaceDetail(true);
+                }}
+              >
+                <span>
+                  <strong>{space.name}</strong>
+                  <small>
+                    {items.length} {items.length === 1 ? 'item' : 'items'}
+                  </small>
+                </span>
+                <b>{inr(roomWorkTypeTotal(space))}</b>
+                <ChevronRight />
+              </button>
+            );
+          })}
+        </div>
+        <Button variant="outline" onClick={() => setRoomModal(true)}>
+          <Plus /> Add space
+        </Button>
+      </section>
       <div
-        className={`builder-grid ${roomsOpen ? 'rooms-open' : 'rooms-closed'} ${summaryOpen ? 'summary-open' : 'summary-closed'}`}
+        className={`builder-grid ${roomsOpen ? 'rooms-open' : 'rooms-closed'} ${summaryOpen ? 'summary-open' : 'summary-closed'} ${mobileSpaceDetail ? 'mobile-detail-open' : 'mobile-detail-closed'}`}
       >
         <aside className={`rooms ${roomsOpen ? 'panel-open' : 'panel-closed'}`}>
           <header>
@@ -1693,10 +1960,11 @@ function Builder({ s }: { s: Store }) {
                 <span>
                   <strong>{r.name}</strong>
                   <small>
-                    {r.items.filter((x) => x.enabled).length} enabled
+                    {roomWorkTypeItems(r).length}{' '}
+                    {roomWorkTypeItems(r).length === 1 ? 'item' : 'items'}
                   </small>
                 </span>
-                <b>{inr(roomTotal(r, p.defaultTier))}</b>
+                <b>{inr(roomWorkTypeTotal(r))}</b>
                 <ChevronRight className="room-chevron" />
               </button>
               <div>
@@ -1767,7 +2035,7 @@ function Builder({ s }: { s: Store }) {
           ))}
           <Button variant="ghost" size="lg" onClick={() => setRoomModal(true)}>
             <Plus />
-            Add room
+            Add space
           </Button>
         </aside>
         <main className="items">
@@ -1785,9 +2053,17 @@ function Builder({ s }: { s: Store }) {
                     Rooms
                   </Button>
                 )}
+                <Button
+                  className="mobile-space-back"
+                  variant="ghost"
+                  onClick={() => setMobileSpaceDetail(false)}
+                >
+                  <ChevronLeft /> Spaces
+                </Button>
                 <span>
-                  {room.items.filter((item) => item.enabled).length} of{' '}
-                  {room.items.length} components enabled
+                  {roomWorkTypeItems(room).length}{' '}
+                  {roomWorkTypeItems(room).length === 1 ? 'item' : 'items'}{' '}
+                  shown
                 </span>
                 <Button
                   className="summary-toggle"
@@ -1812,11 +2088,15 @@ function Builder({ s }: { s: Store }) {
                     <div>
                       <small>SELECTED ROOM</small>
                       <h2>{room.name}</h2>
+                      <p>
+                        {selectedWorkType} ·{' '}
+                        {selectedFloor?.name ?? 'All floors'}
+                      </p>
                     </div>
                   </div>
                   <span>
-                    <strong>{inr(roomTotal(room, p.defaultTier))}</strong>
-                    <small>Room total</small>
+                    <strong>{inr(roomWorkTypeTotal(room))}</strong>
+                    <small>Visible items</small>
                   </span>
                 </header>
                 <div className="room-components">
@@ -2318,70 +2598,13 @@ function Num({
     />
   );
 }
-function QuickMeasure({
-  item,
-  patch,
-}: {
-  item: QuoteItem;
-  patch: (x: Partial<QuoteItem>) => void;
-}) {
-  if (item.measurementType === 'flat')
-    return <span className="quick-measure flat-measure">Flat amount</span>;
-  const field = (
-    label: string,
-    value: number,
-    key: keyof QuoteItem,
-    unit = '',
-  ) => (
-    <label>
-      <span>{label}</span>
-      <Input
-        aria-label={`${item.name} ${label}`}
-        type="number"
-        min="0"
-        value={value}
-        onChange={(event) => patch({ [key]: Number(event.target.value) || 0 })}
-      />
-      {unit && <b>{unit}</b>}
-    </label>
-  );
-  return (
-    <div className="quick-measure">
-      {item.measureMode !== 'dimensions' && (
-        <>
-          {field('Quantity', item.quantity, 'quantity')}
-          <em>
-            {itemMeasure(item).toLocaleString('en-IN')}{' '}
-            {item.customUnit || item.unit || 'Nos'}
-          </em>
-        </>
-      )}
-      {item.measureMode === 'dimensions' &&
-        (item.unit === 'Sq.ft' ||
-          item.unit === 'Sq.m' ||
-          item.measurementType === 'sqft') && (
-          <>
-            {field('Length', item.length, 'length', item.dimensionUnit ?? 'ft')}
-            <i>×</i>
-            {field('Width', item.width, 'width', item.dimensionUnit ?? 'ft')}
-            <em>
-              {itemMeasure(item).toLocaleString('en-IN')} {item.unit ?? 'Sq.ft'}
-            </em>
-          </>
-        )}
-      {item.measureMode === 'dimensions' &&
-        (item.unit === 'R.ft' ||
-          item.unit === 'R.m' ||
-          item.measurementType === 'rft') && (
-          <>
-            {field('Length', item.length, 'length', item.dimensionUnit ?? 'ft')}
-            <em>
-              {itemMeasure(item).toLocaleString('en-IN')} {item.unit ?? 'R.ft'}
-            </em>
-          </>
-        )}
-    </div>
-  );
+function itemMeasureLabel(item: QuoteItem) {
+  if (item.pricingMode === 'lump-sum' || item.unit === 'Lump Sum')
+    return 'Lump sum';
+  const quantity = itemMeasure(item).toLocaleString('en-IN', {
+    maximumFractionDigits: 2,
+  });
+  return `${quantity} ${item.customUnit || item.unit || unitForMeasurement(item.measurementType)}`;
 }
 function Item({
   item,
@@ -2427,7 +2650,7 @@ function Item({
   }, [more]);
   return (
     <article className={'item ' + (!item.enabled ? 'off' : '')}>
-      <header>
+      <header onClick={() => !editing && setEditing(true)}>
         <div className="item-title">
           <figure className="item-image">
             <img src={itemImage(item.name)} alt="" aria-hidden="true" />
@@ -2435,11 +2658,14 @@ function Item({
           <Switch
             checked={item.enabled}
             onCheckedChange={(v) => patch({ enabled: v })}
+            onClick={(event) => event.stopPropagation()}
           />
           <span className="item-copy">
             <strong>{item.name}</strong>
             <small>{item.description || 'No description'}</small>
-            <QuickMeasure item={item} patch={patch} />
+            <span className="item-measure-summary">
+              {itemMeasureLabel(item)}
+            </span>
           </span>
         </div>
         <span className="item-total">
@@ -2453,7 +2679,10 @@ function Item({
         <Button
           variant={editing ? 'secondary' : 'outline'}
           className="edit-item"
-          onClick={() => setEditing(!editing)}
+          onClick={(event) => {
+            event.stopPropagation();
+            setEditing(!editing);
+          }}
         >
           {editing ? 'Done' : 'Edit'}
         </Button>
@@ -2461,7 +2690,10 @@ function Item({
           <Button
             variant="ghost"
             size="icon-lg"
-            onClick={() => setMore(!more)}
+            onClick={(event) => {
+              event.stopPropagation();
+              setMore(!more);
+            }}
             aria-label={`Actions for ${item.name}`}
             aria-expanded={more}
           >
