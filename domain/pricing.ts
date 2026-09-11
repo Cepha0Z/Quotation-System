@@ -25,7 +25,31 @@ export const itemBaseRate = (
   item.rateOverride ??
   item.rates[forcedTier ?? effectiveTier(item, projectTier)] ??
   0;
+const dimensionInMetres = (value: unknown, unit = 'ft') => {
+  const amount = safe(value);
+  if (unit === 'mm') return amount / 1000;
+  if (unit === 'cm') return amount / 100;
+  if (unit === 'ft') return amount * 0.3048;
+  return amount;
+};
+const dimensionInFeet = (value: unknown, unit = 'ft') =>
+  dimensionInMetres(value, unit) / 0.3048;
 export const itemMeasure = (item: QuoteItem) => {
+  if (item.pricingMode === 'lump-sum' || item.unit === 'Lump Sum') return 1;
+  if (item.measureMode !== 'dimensions') return safe(item.quantity);
+  const dimensionUnit = item.dimensionUnit ?? 'ft';
+  if (item.unit === 'Sq.ft')
+    return (
+      dimensionInFeet(item.length, dimensionUnit) *
+      dimensionInFeet(item.width, dimensionUnit)
+    );
+  if (item.unit === 'Sq.m')
+    return (
+      dimensionInMetres(item.length, dimensionUnit) *
+      dimensionInMetres(item.width, dimensionUnit)
+    );
+  if (item.unit === 'R.ft') return dimensionInFeet(item.length, dimensionUnit);
+  if (item.unit === 'R.m') return dimensionInMetres(item.length, dimensionUnit);
   if (item.measurementType === 'sqft')
     return safe(item.length) * safe(item.width);
   if (item.measurementType === 'rft') return safe(item.length);

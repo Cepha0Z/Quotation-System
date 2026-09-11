@@ -39,10 +39,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import {
-  firmSettings as ds,
-  rateCard as dr,
-} from '@/domain/sample';
+import { firmSettings as ds, rateCard as dr } from '@/domain/sample';
 import {
   inr,
   itemBaseRate,
@@ -53,8 +50,17 @@ import {
   quoteTotals,
   roomTotal,
 } from '@/domain/pricing';
+import {
+  FLOOR_SUGGESTIONS,
+  SPACE_SUGGESTIONS,
+  WORK_TYPES,
+  measurementForUnit,
+  normalizeProject,
+  unitForMeasurement,
+} from '@/domain/boq';
 import type {
   FirmSettings,
+  BoqUnit,
   FeeMethod,
   MeasurementType,
   Project,
@@ -178,11 +184,24 @@ function useStore(): Store {
             settingsRepository.get(),
             revisionRepository.list(),
           ]);
-        const initialProjects = savedProjects;
-        const initialRates = savedRates.length ? savedRates : dr;
+        const initialProjects = savedProjects.map(normalizeProject);
+        const initialRates = savedRates.length
+          ? [
+              ...savedRates,
+              ...dr.filter(
+                (template) =>
+                  !savedRates.some(
+                    (saved) =>
+                      saved.name.toLowerCase() === template.name.toLowerCase(),
+                  ),
+              ),
+            ]
+          : dr;
         const initialSettings = normalizeFirmSettings(savedSettings);
         const seedWrites: Promise<void>[] = [];
-        if (!savedRates.length)
+        if (JSON.stringify(savedProjects) !== JSON.stringify(initialProjects))
+          seedWrites.push(projectRepository.saveAll(initialProjects));
+        if (JSON.stringify(savedRates) !== JSON.stringify(initialRates))
           seedWrites.push(rateCardRepository.saveAll(initialRates));
         if (
           !savedSettings ||
@@ -417,53 +436,84 @@ function Modal({
 }
 function NewProject({ s }: { s: Store }) {
   const [open, setOpen] = useState(false),
+    [step, setStep] = useState(1),
+    [details, setDetails] = useState({
+      clientName: '',
+      propertyName: '',
+      propertyType: '',
+      layout: '4 BHK',
+      location: '',
+      carpetArea: 2400,
+      notes: '',
+      defaultTier: 'premium' as Tier,
+    }),
+    [floors, setFloors] = useState(() => [{ id: uid(), name: 'Ground Floor' }]),
+    [spaces, setSpaces] = useState<Record<string, string[]>>({}),
     go = useNavigate();
-  function create(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const f = new FormData(e.currentTarget),
-      layout = String(f.get('layout')),
-      p: Project = {
-        id: uid(),
-        clientName: String(f.get('client')),
-        propertyName: String(f.get('property')),
-        layout,
-        carpetArea: Number(f.get('area')) || 0,
-        defaultTier: String(f.get('tier')) as Tier,
-        status: 'active',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        rooms: roomsForLayout(layout, s.rates),
-        fees: [
-          {
-            id: uid(),
-            name: 'Design Fee',
-            method: 'sqft',
-            value: 50,
-            discount: 0,
-            enabled: true,
-          },
-          {
-            id: uid(),
-            name: '3D / Drawing',
-            method: 'flat',
-            value: 35000,
-            discount: 0,
-            enabled: true,
-          },
-          {
-            id: uid(),
-            name: 'Site Supervision',
-            method: 'flat',
-            value: 45000,
-            discount: 0,
-            enabled: true,
-          },
-        ],
-        projectDiscount: 0,
-        showRates: true,
-      };
-    s.setProjects([p, ...s.projects]);
+  const close = () => {
     setOpen(false);
+    setStep(1);
+  };
+  const addSpace = (floorId: string, name: string) => {
+    const value = name.trim();
+    if (!value) return;
+    setSpaces((current) => ({
+      ...current,
+      [floorId]: [...(current[floorId] ?? []), value],
+    }));
+  };
+  function create() {
+    const chosenSpaces = floors.flatMap((floor) =>
+      (spaces[floor.id] ?? []).map((name) => ({
+        id: uid(),
+        name,
+        floorId: floor.id,
+        items: [] as QuoteItem[],
+      })),
+    );
+    const fallback = roomsForLayout(details.layout, s.rates).map((room) => ({
+      ...room,
+      floorId: floors[0].id,
+    }));
+    const p: Project = {
+      id: uid(),
+      ...details,
+      status: 'active',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      floors,
+      rooms: chosenSpaces.length ? chosenSpaces : fallback,
+      fees: [
+        {
+          id: uid(),
+          name: 'Design Fee',
+          method: 'sqft',
+          value: 50,
+          discount: 0,
+          enabled: true,
+        },
+        {
+          id: uid(),
+          name: '3D / Drawing',
+          method: 'flat',
+          value: 35000,
+          discount: 0,
+          enabled: true,
+        },
+        {
+          id: uid(),
+          name: 'Site Supervision',
+          method: 'flat',
+          value: 45000,
+          discount: 0,
+          enabled: true,
+        },
+      ],
+      projectDiscount: 0,
+      showRates: true,
+    };
+    s.setProjects([p, ...s.projects]);
+    close();
     go('/projects/' + p.id);
   }
   return (
@@ -473,51 +523,289 @@ function NewProject({ s }: { s: Store }) {
         New Project
       </Button>
       {open && (
-        <Modal title="Create new project" close={() => setOpen(false)}>
-          <form className="form-grid" onSubmit={create}>
-            <label>
-              Client Name
-              <Input name="client" required placeholder="Client name" />
-            </label>
-            <label>
-              Property Name
-              <Input name="property" required placeholder="Property name" />
-            </label>
-            <label>
-              Layout
-              <select name="layout" defaultValue="4 BHK">
-                {['1 BHK', '2 BHK', '3 BHK', '4 BHK', '5 BHK', 'Other'].map(
-                  (x) => (
-                    <option key={x}>{x}</option>
-                  ),
-                )}
-              </select>
-            </label>
-            <label>
-              Carpet Area
-              <Input name="area" type="number" defaultValue="2400" />
-            </label>
-            <label>
-              Default Tier
-              <select name="tier" defaultValue="premium">
-                {s.settings.enabledTiers.map((t) => (
-                  <option value={t} key={t}>
-                    {tl(t)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="actions">
-              <Button
-                variant="outline"
-                type="button"
-                onClick={() => setOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit">Create & open builder</Button>
+        <Modal title={`Create project · ${step} of 4`} close={close}>
+          <div className="setup-progress">
+            <span style={{ width: `${step * 25}%` }} />
+          </div>
+          {step === 1 && (
+            <div className="form-grid">
+              <label>
+                Project name
+                <Input
+                  value={details.propertyName}
+                  onChange={(e) =>
+                    setDetails({ ...details, propertyName: e.target.value })
+                  }
+                />
+              </label>
+              <label>
+                Client
+                <Input
+                  value={details.clientName}
+                  onChange={(e) =>
+                    setDetails({ ...details, clientName: e.target.value })
+                  }
+                />
+              </label>
+              <label>
+                Property type
+                <Input
+                  value={details.propertyType}
+                  onChange={(e) =>
+                    setDetails({ ...details, propertyType: e.target.value })
+                  }
+                  placeholder="Residence, villa, office…"
+                />
+              </label>
+              <label>
+                Configuration
+                <select
+                  value={details.layout}
+                  onChange={(e) =>
+                    setDetails({ ...details, layout: e.target.value })
+                  }
+                >
+                  {['1 BHK', '2 BHK', '3 BHK', '4 BHK', '5 BHK', 'Other'].map(
+                    (x) => (
+                      <option key={x}>{x}</option>
+                    ),
+                  )}
+                </select>
+              </label>
+              <label>
+                Location
+                <Input
+                  value={details.location}
+                  onChange={(e) =>
+                    setDetails({ ...details, location: e.target.value })
+                  }
+                />
+              </label>
+              <label>
+                Area (sq.ft)
+                <Num
+                  value={details.carpetArea}
+                  onChange={(carpetArea) =>
+                    setDetails({ ...details, carpetArea })
+                  }
+                />
+              </label>
+              <label>
+                Default tier
+                <select
+                  value={details.defaultTier}
+                  onChange={(e) =>
+                    setDetails({
+                      ...details,
+                      defaultTier: e.target.value as Tier,
+                    })
+                  }
+                >
+                  {s.settings.enabledTiers.map((t) => (
+                    <option value={t} key={t}>
+                      {tl(t)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="wide">
+                Notes
+                <textarea
+                  value={details.notes}
+                  onChange={(e) =>
+                    setDetails({ ...details, notes: e.target.value })
+                  }
+                />
+              </label>
             </div>
-          </form>
+          )}
+          {step === 2 && (
+            <div className="setup-list">
+              <p>Add, rename and order every floor used by the project.</p>
+              {floors.map((floor, index) => (
+                <div key={floor.id}>
+                  <Input
+                    value={floor.name}
+                    onChange={(e) =>
+                      setFloors(
+                        floors.map((x) =>
+                          x.id === floor.id
+                            ? { ...x, name: e.target.value }
+                            : x,
+                        ),
+                      )
+                    }
+                  />
+                  <Button
+                    variant="ghost"
+                    disabled={!index}
+                    onClick={() => {
+                      const next = [...floors];
+                      [next[index - 1], next[index]] = [
+                        next[index],
+                        next[index - 1],
+                      ];
+                      setFloors(next);
+                    }}
+                  >
+                    <ChevronUp />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    disabled={index === floors.length - 1}
+                    onClick={() => {
+                      const next = [...floors];
+                      [next[index + 1], next[index]] = [
+                        next[index],
+                        next[index + 1],
+                      ];
+                      setFloors(next);
+                    }}
+                  >
+                    <ChevronDown />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    disabled={floors.length === 1}
+                    onClick={() =>
+                      setFloors(floors.filter((x) => x.id !== floor.id))
+                    }
+                  >
+                    <Trash2 />
+                  </Button>
+                </div>
+              ))}
+              <div className="preset-row">
+                {FLOOR_SUGGESTIONS.filter(
+                  (name) => !floors.some((floor) => floor.name === name),
+                ).map((name) => (
+                  <Button
+                    key={name}
+                    variant="outline"
+                    onClick={() => setFloors([...floors, { id: uid(), name }])}
+                  >
+                    {name}
+                  </Button>
+                ))}
+                <Button
+                  onClick={() =>
+                    setFloors([...floors, { id: uid(), name: 'New Floor' }])
+                  }
+                >
+                  <Plus /> Add floor
+                </Button>
+              </div>
+            </div>
+          )}
+          {step === 3 && (
+            <div className="space-setup">
+              {floors.map((floor) => (
+                <section key={floor.id}>
+                  <h3>{floor.name}</h3>
+                  <div className="space-chips">
+                    {(spaces[floor.id] ?? []).map((name, index) => (
+                      <button
+                        key={`${name}-${index}`}
+                        onClick={() =>
+                          setSpaces({
+                            ...spaces,
+                            [floor.id]: (spaces[floor.id] ?? []).filter(
+                              (_, i) => i !== index,
+                            ),
+                          })
+                        }
+                      >
+                        {name}
+                        <X />
+                      </button>
+                    ))}
+                  </div>
+                  <select
+                    defaultValue=""
+                    onChange={(e) => {
+                      addSpace(floor.id, e.target.value);
+                      e.target.value = '';
+                    }}
+                  >
+                    <option value="">+ Add space…</option>
+                    {SPACE_SUGGESTIONS.map((name) => (
+                      <option key={name}>{name}</option>
+                    ))}
+                  </select>
+                  <Input
+                    placeholder="Custom space — press Enter"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        addSpace(floor.id, e.currentTarget.value);
+                        e.currentTarget.value = '';
+                      }
+                    }}
+                  />
+                </section>
+              ))}
+            </div>
+          )}
+          {step === 4 && (
+            <div className="setup-review">
+              <p>
+                <strong>{details.layout}</strong> is only a starting reference.
+                Bedrooms and all other spaces remain fully editable after
+                creation.
+              </p>
+              {floors.map((floor) => (
+                <section key={floor.id}>
+                  <h3>{floor.name}</h3>
+                  <p>
+                    {(spaces[floor.id] ?? []).join(' · ') || 'No spaces yet'}
+                  </p>
+                </section>
+              ))}
+            </div>
+          )}
+          <div className="actions">
+            <Button
+              variant="outline"
+              onClick={step === 1 ? close : () => setStep(step - 1)}
+            >
+              {step === 1 ? 'Cancel' : 'Back'}
+            </Button>
+            {step < 4 ? (
+              <Button
+                disabled={
+                  step === 1 &&
+                  (!details.propertyName.trim() || !details.clientName.trim())
+                }
+                onClick={() => {
+                  if (
+                    step === 2 &&
+                    !Object.values(spaces).some((items) => items.length)
+                  ) {
+                    const suggested = layoutRooms[details.layout] ?? [
+                      'Living Room',
+                      'Kitchen',
+                    ];
+                    const next: Record<string, string[]> = {};
+                    floors.forEach((floor) => (next[floor.id] = []));
+                    suggested.forEach((name, index) => {
+                      const bedroom = name.includes('Bedroom');
+                      const target = bedroom
+                        ? floors[
+                            Math.min(index % floors.length, floors.length - 1)
+                          ]
+                        : floors[0];
+                      next[target.id].push(name);
+                    });
+                    setSpaces(next);
+                  }
+                  setStep(step + 1);
+                }}
+              >
+                Continue
+              </Button>
+            ) : (
+              <Button onClick={create}>Create & open BOQ</Button>
+            )}
+          </div>
         </Modal>
       )}
     </>
@@ -672,12 +960,19 @@ const fresh = (r?: RateCardItem): QuoteItem => ({
   name: r?.name ?? 'New Item',
   description: r?.description ?? '',
   enabled: true,
-  measurementType: r?.unit ?? 'sqft',
+  measurementType: r?.unit ?? 'quantity',
+  unit: unitForMeasurement(r?.unit ?? 'quantity'),
+  pricingMode: r?.unit === 'flat' ? 'lump-sum' : 'unit',
+  workType: 'Millwork',
+  dimensionUnit: 'ft',
+  hsnCode: '',
+  measureMode:
+    r?.unit === 'sqft' || r?.unit === 'rft' ? 'dimensions' : 'quantity',
   quantity: 1,
   length: 8,
   width: 4,
   height: 0,
-  rates: r?.rates ?? { standard: 1000, premium: 1500, luxury: 2000 },
+  rates: r?.rates ?? { standard: 0, premium: 0, luxury: 0 },
   discount: 0,
   notes: '',
   subUnits: structuredClone(r?.subUnits ?? []),
@@ -746,44 +1041,90 @@ async function exportProjectExcel(project: Project, settings: FirmSettings) {
     ],
     [],
   ];
-  const roomHeaderRows: number[] = [],
+  const workTypeRows: number[] = [],
+    floorHeaderRows: number[] = [],
+    roomHeaderRows: number[] = [],
     tableHeaderRows: number[] = [],
     moneyRows: number[] = [];
-  project.rooms.forEach((room) => {
-    roomHeaderRows.push(rows.length);
-    rows.push([
-      room.name.toUpperCase(),
-      '',
-      '',
-      '',
-      '',
-      '',
-      roomTotal(room, project.defaultTier),
-    ]);
-    tableHeaderRows.push(rows.length);
-    rows.push([
-      'Item',
-      'Description',
-      'Measurement',
-      'Tier',
-      'Rate',
-      'Discount',
-      'Total',
-    ]);
-    room.items
-      .filter((item) => item.enabled)
-      .forEach((item) => {
-        moneyRows.push(rows.length);
+  const workTypes = [
+    ...WORK_TYPES,
+    ...new Set(
+      project.rooms.flatMap((space) =>
+        space.items.map((item) => item.workType ?? 'Millwork'),
+      ),
+    ),
+  ];
+  [...new Set(workTypes)].forEach((workType) => {
+    const spacesForWork = project.rooms.filter((space) =>
+      space.items.some(
+        (item) => item.enabled && (item.workType ?? 'Millwork') === workType,
+      ),
+    );
+    if (!spacesForWork.length) return;
+    workTypeRows.push(rows.length);
+    rows.push(['', workType.toUpperCase(), '', '', '', '', '']);
+    (project.floors ?? []).forEach((floor) => {
+      const floorSpaces = spacesForWork.filter(
+        (space) => space.floorId === floor.id,
+      );
+      if (!floorSpaces.length) return;
+      floorHeaderRows.push(rows.length);
+      rows.push(['', floor.name.toUpperCase(), '', '', '', '', '']);
+      floorSpaces.forEach((space) => {
+        const items = space.items.filter(
+          (item) => item.enabled && (item.workType ?? 'Millwork') === workType,
+        );
+        roomHeaderRows.push(rows.length);
+        rows.push(['', space.name, '', '', '', '', '']);
+        tableHeaderRows.push(rows.length);
         rows.push([
-          item.name,
-          item.description,
-          `${itemMeasure(item).toLocaleString('en-IN')} ${item.measurementType}`,
-          tl(item.tierOverride ?? project.defaultTier),
-          itemBaseRate(item, project.defaultTier),
-          item.discount ? -item.discount : 0,
-          itemTotal(item, project.defaultTier),
+          'Sl.no',
+          'Particulars',
+          'HSN Code',
+          'Qty',
+          'Unit',
+          'Rate',
+          'Amt',
         ]);
+        items.forEach((item, index) => {
+          moneyRows.push(rows.length);
+          const dimensions =
+            item.measureMode === 'dimensions'
+              ? [
+                  item.length && `${item.length}L`,
+                  item.width && `${item.width}D`,
+                  item.height && `${item.height}H`,
+                ]
+                  .filter(Boolean)
+                  .join(' × ')
+              : '';
+          rows.push([
+            index + 1,
+            `${item.name}${item.description ? `: ${item.description}` : ''}${dimensions ? `\nSize: ${dimensions} ${item.dimensionUnit ?? 'ft'}` : ''}${item.notes ? `\n${item.notes}` : ''}`,
+            item.hsnCode ?? '',
+            item.pricingMode === 'lump-sum' ? 1 : itemMeasure(item),
+            item.customUnit ||
+              item.unit ||
+              unitForMeasurement(item.measurementType),
+            itemBaseRate(item, project.defaultTier),
+            itemTotal(item, project.defaultTier),
+          ]);
+          item.subUnits
+            .filter((component) => component.enabled)
+            .forEach((component) => {
+              rows.push([
+                '',
+                `   Component: ${component.name}`,
+                '',
+                '',
+                '',
+                component.rate,
+                '',
+              ]);
+            });
+        });
       });
+    });
     rows.push([]);
   });
   const summaryStart = rows.length;
@@ -821,7 +1162,14 @@ async function exportProjectExcel(project: Project, settings: FirmSettings) {
     { wch: 19 },
   ];
   ws['!rows'] = rows.map((_, i) => ({
-    hpt: i === 0 ? 31 : roomHeaderRows.includes(i) ? 25 : 21,
+    hpt:
+      i === 0
+        ? 31
+        : moneyRows.includes(i)
+          ? 48
+          : roomHeaderRows.includes(i)
+            ? 25
+            : 21,
   }));
   ws['!merges'] = [
     0,
@@ -858,9 +1206,10 @@ async function exportProjectExcel(project: Project, settings: FirmSettings) {
   const range = X.utils.decode_range(ws['!ref']!);
   for (let r = range.s.r; r <= range.e.r; r++)
     for (let c = 0; c <= 6; c++) {
-      const cell = ws[X.utils.encode_cell({ r, c })];
-      if (!cell) continue;
+      const address = X.utils.encode_cell({ r, c });
+      const cell = ws[address] ?? (ws[address] = { t: 's', v: '' });
       cell.s = {
+        fill: { fgColor: { rgb: 'FFFFFF' } },
         font: { name: 'Aptos', sz: 10, color: { rgb: charcoal } },
         alignment: {
           vertical: 'center',
@@ -873,14 +1222,17 @@ async function exportProjectExcel(project: Project, settings: FirmSettings) {
         cell.s.numFmt = '₹#,##0;[Red]-₹#,##0';
     }
   ws.A1.s = {
+    fill: { fgColor: { rgb: 'FFFFFF' } },
     font: { name: 'Aptos Display', sz: 22, bold: true, color: { rgb: deep } },
     alignment: { vertical: 'center' },
   };
   ws.A2.s = {
+    fill: { fgColor: { rgb: 'FFFFFF' } },
     font: { name: 'Aptos', sz: 9, color: { rgb: '65716C' } },
     alignment: { vertical: 'center' },
   };
   ws.A4.s = {
+    fill: { fgColor: { rgb: 'FFFFFF' } },
     font: {
       name: 'Aptos Display',
       sz: 16,
@@ -890,17 +1242,36 @@ async function exportProjectExcel(project: Project, settings: FirmSettings) {
     alignment: { vertical: 'center' },
   };
   ws.A5.s = {
+    fill: { fgColor: { rgb: 'FFFFFF' } },
     font: { name: 'Aptos', sz: 11, bold: true, color: { rgb: accent } },
     alignment: { vertical: 'center' },
   };
-  roomHeaderRows.forEach((r) => {
+  [...workTypeRows, ...floorHeaderRows, ...roomHeaderRows].forEach((r) => {
     for (let c = 0; c <= 6; c++) {
       const cell =
         ws[X.utils.encode_cell({ r, c })] ??
         (ws[X.utils.encode_cell({ r, c })] = { t: 's', v: '' });
       cell.s = {
-        fill: { fgColor: { rgb: warm } },
-        font: { name: 'Aptos', sz: 11, bold: true, color: { rgb: deep } },
+        fill: {
+          fgColor: {
+            rgb: workTypeRows.includes(r)
+              ? deep
+              : floorHeaderRows.includes(r)
+                ? accent
+                : warm,
+          },
+        },
+        font: {
+          name: 'Aptos',
+          sz: 11,
+          bold: true,
+          color: {
+            rgb:
+              workTypeRows.includes(r) || floorHeaderRows.includes(r)
+                ? 'FFFFFF'
+                : deep,
+          },
+        },
         alignment: {
           vertical: 'center',
           horizontal: c === 6 ? 'right' : 'left',
@@ -943,7 +1314,7 @@ async function exportProjectExcel(project: Project, settings: FirmSettings) {
             ? { fgColor: { rgb: deep } }
             : r === summaryStart + 6
               ? { fgColor: { rgb: warm } }
-              : undefined,
+              : { fgColor: { rgb: 'FFFFFF' } },
         alignment: {
           vertical: 'center',
           horizontal: c === 6 ? 'right' : 'left',
@@ -974,13 +1345,21 @@ async function exportProjectExcel(project: Project, settings: FirmSettings) {
       type: 'base64',
       compression: true,
     });
-    await shareNativeFile(filename, data, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    await shareNativeFile(
+      filename,
+      data,
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
     return;
   }
   X.writeFile(wb, filename, { compression: true });
 }
 
-async function shareNativeFile(filename: string, data: string, _mimeType: string) {
+async function shareNativeFile(
+  filename: string,
+  data: string,
+  _mimeType: string,
+) {
   const [{ Directory, Filesystem }, { Share }] = await Promise.all([
     import('@capacitor/filesystem'),
     import('@capacitor/share'),
@@ -1052,12 +1431,19 @@ function Builder({ s }: { s: Store }) {
     [revisionModal, setRevisionModal] = useState(false),
     [revisionNote, setRevisionNote] = useState(''),
     [editingItemId, setEditingItemId] = useState<string | null>(null),
+    [selectedWorkType, setSelectedWorkType] = useState('All'),
+    [selectedFloorId, setSelectedFloorId] = useState(p?.floors?.[0]?.id ?? ''),
+    [structureModal, setStructureModal] = useState(false),
     [roomsOpen, setRoomsOpen] = useState(() => window.innerWidth > 1100),
     [summaryOpen, setSummaryOpen] = useState(() => window.innerWidth > 1100);
   if (!p && !s.hydrated)
     return <div className="boot">Preparing your quotation workspace…</div>;
   if (!p) return <Navigate to="/projects" />;
-  const room = p.rooms.find((r) => r.id === rid) ?? p.rooms[0],
+  const projectFloors = p.floors ?? [],
+    visibleRooms = p.rooms.filter(
+      (space) => !selectedFloorId || space.floorId === selectedFloorId,
+    ),
+    room = visibleRooms.find((r) => r.id === rid) ?? visibleRooms[0],
     update = (fn: (p: Project) => Project) =>
       s.setProjects(
         s.projects.map((x) =>
@@ -1208,17 +1594,96 @@ function Builder({ s }: { s: Store }) {
           </div>
         </div>
       </header>
+      <nav className="boq-drilldown" aria-label="BOQ filters">
+        <div>
+          <small>VIEW BY WORK TYPE</small>
+          <div>
+            {['All', ...WORK_TYPES].map((workType) => (
+              <button
+                className={selectedWorkType === workType ? 'active' : ''}
+                key={workType}
+                onClick={() => setSelectedWorkType(workType)}
+              >
+                {workType}
+                <span>
+                  {inr(
+                    p.rooms.reduce(
+                      (sum, space) =>
+                        sum +
+                        space.items
+                          .filter(
+                            (item) =>
+                              item.enabled &&
+                              (workType === 'All' ||
+                                item.workType === workType),
+                          )
+                          .reduce(
+                            (itemSum, item) =>
+                              itemSum + itemTotal(item, p.defaultTier),
+                            0,
+                          ),
+                      0,
+                    ),
+                  )}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <small>FLOOR</small>
+          <div>
+            <button
+              className={!selectedFloorId ? 'active' : ''}
+              onClick={() => {
+                setSelectedFloorId('');
+                setRid(p.rooms[0]?.id ?? '');
+              }}
+            >
+              All Floors<span>{inr(quoteTotals(p).interior)}</span>
+            </button>
+            {projectFloors.map((floor) => (
+              <button
+                className={selectedFloorId === floor.id ? 'active' : ''}
+                key={floor.id}
+                onClick={() => {
+                  setSelectedFloorId(floor.id);
+                  setRid(
+                    p.rooms.find((space) => space.floorId === floor.id)?.id ??
+                      '',
+                  );
+                }}
+              >
+                {floor.name}
+                <span>
+                  {inr(
+                    p.rooms
+                      .filter((space) => space.floorId === floor.id)
+                      .reduce(
+                        (sum, space) => sum + roomTotal(space, p.defaultTier),
+                        0,
+                      ),
+                  )}
+                </span>
+              </button>
+            ))}
+            <button onClick={() => setStructureModal(true)}>
+              <Settings /> Structure
+            </button>
+          </div>
+        </div>
+      </nav>
       <div
         className={`builder-grid ${roomsOpen ? 'rooms-open' : 'rooms-closed'} ${summaryOpen ? 'summary-open' : 'summary-closed'}`}
       >
         <aside className={`rooms ${roomsOpen ? 'panel-open' : 'panel-closed'}`}>
           <header>
-            <b>ROOMS</b>
+            <b>SPACES</b>
             <button onClick={() => setRoomsOpen(false)} aria-label="Hide rooms">
               <PanelLeftClose />
             </button>
           </header>
-          {p.rooms.map((r, i) => (
+          {visibleRooms.map((r, i) => (
             <article
               key={r.id}
               className={r.id === room?.id ? 'selected' : ''}
@@ -1241,7 +1706,12 @@ function Builder({ s }: { s: Store }) {
                     e.stopPropagation();
                     update((q) => {
                       const a = [...q.rooms];
-                      [a[i - 1], a[i]] = [a[i], a[i - 1]];
+                      const from = a.findIndex((space) => space.id === r.id),
+                        to = a.findIndex(
+                          (space) => space.id === visibleRooms[i - 1]?.id,
+                        );
+                      if (from < 0 || to < 0) return q;
+                      [a[to], a[from]] = [a[from], a[to]];
                       return { ...q, rooms: a };
                     });
                   }}
@@ -1249,12 +1719,17 @@ function Builder({ s }: { s: Store }) {
                   <ChevronUp />
                 </button>
                 <button
-                  disabled={i === p.rooms.length - 1}
+                  disabled={i === visibleRooms.length - 1}
                   onClick={(e) => {
                     e.stopPropagation();
                     update((q) => {
                       const a = [...q.rooms];
-                      [a[i + 1], a[i]] = [a[i], a[i + 1]];
+                      const from = a.findIndex((space) => space.id === r.id),
+                        to = a.findIndex(
+                          (space) => space.id === visibleRooms[i + 1]?.id,
+                        );
+                      if (from < 0 || to < 0) return q;
+                      [a[to], a[from]] = [a[from], a[to]];
                       return { ...q, rooms: a };
                     });
                   }}
@@ -1264,6 +1739,13 @@ function Builder({ s }: { s: Store }) {
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (
+                      r.items.length &&
+                      !window.confirm(
+                        `Delete ${r.name} and its ${r.items.length} BOQ items?`,
+                      )
+                    )
+                      return;
                     const remainingRooms = p.rooms.filter(
                       (candidate) => candidate.id !== r.id,
                     );
@@ -1338,87 +1820,96 @@ function Builder({ s }: { s: Store }) {
                   </span>
                 </header>
                 <div className="room-components">
-                  {room.items.map((item, i) => (
-                    <Item
-                      key={item.id}
-                      item={item}
-                      p={p}
-                      currentRoomId={room.id}
-                      editing={editingItemId === item.id}
-                      setEditing={(value) =>
-                        setEditingItemId(value ? item.id : null)
-                      }
-                      patch={(x) => patchItem(item.id, x)}
-                      duplicate={() =>
-                        update((q) => ({
-                          ...q,
-                          rooms: q.rooms.map((r) =>
-                            r.id === room.id
-                              ? {
-                                  ...r,
-                                  items: [
-                                    ...r.items,
-                                    {
-                                      ...structuredClone(item),
-                                      id: uid(),
-                                      name: item.name + ' copy',
-                                    },
-                                  ],
-                                }
-                              : r,
-                          ),
-                        }))
-                      }
-                      remove={() =>
-                        update((q) => ({
-                          ...q,
-                          rooms: q.rooms.map((r) =>
-                            r.id === room.id
-                              ? {
-                                  ...r,
-                                  items: r.items.filter(
-                                    (x) => x.id !== item.id,
-                                  ),
-                                }
-                              : r,
-                          ),
-                        }))
-                      }
-                      move={(dest) =>
-                        update((q) => ({
-                          ...q,
-                          rooms: q.rooms.map((r) =>
-                            r.id === room.id
-                              ? {
-                                  ...r,
-                                  items: r.items.filter(
-                                    (x) => x.id !== item.id,
-                                  ),
-                                }
-                              : r.id === dest
+                  {room.items
+                    .filter(
+                      (item) =>
+                        selectedWorkType === 'All' ||
+                        item.workType === selectedWorkType,
+                    )
+                    .map((item, i) => (
+                      <Item
+                        key={item.id}
+                        item={item}
+                        p={p}
+                        currentRoomId={room.id}
+                        editing={editingItemId === item.id}
+                        setEditing={(value) =>
+                          setEditingItemId(value ? item.id : null)
+                        }
+                        patch={(x) => patchItem(item.id, x)}
+                        duplicate={() =>
+                          update((q) => ({
+                            ...q,
+                            rooms: q.rooms.map((r) =>
+                              r.id === room.id
                                 ? {
                                     ...r,
-                                    items: [...r.items, structuredClone(item)],
+                                    items: [
+                                      ...r.items,
+                                      {
+                                        ...structuredClone(item),
+                                        id: uid(),
+                                        name: item.name + ' copy',
+                                      },
+                                    ],
                                   }
                                 : r,
-                          ),
-                        }))
-                      }
-                      order={(d) =>
-                        update((q) => ({
-                          ...q,
-                          rooms: q.rooms.map((r) => {
-                            if (r.id !== room.id) return r;
-                            const a = [...r.items],
-                              j = i + d;
-                            if (j < 0 || j >= a.length) return r;
-                            [a[i], a[j]] = [a[j], a[i]];
-                            return { ...r, items: a };
-                          }),
-                        }))
-                      }
-                    />
-                  ))}
+                            ),
+                          }))
+                        }
+                        remove={() =>
+                          update((q) => ({
+                            ...q,
+                            rooms: q.rooms.map((r) =>
+                              r.id === room.id
+                                ? {
+                                    ...r,
+                                    items: r.items.filter(
+                                      (x) => x.id !== item.id,
+                                    ),
+                                  }
+                                : r,
+                            ),
+                          }))
+                        }
+                        move={(dest) =>
+                          update((q) => ({
+                            ...q,
+                            rooms: q.rooms.map((r) =>
+                              r.id === room.id
+                                ? {
+                                    ...r,
+                                    items: r.items.filter(
+                                      (x) => x.id !== item.id,
+                                    ),
+                                  }
+                                : r.id === dest
+                                  ? {
+                                      ...r,
+                                      items: [
+                                        ...r.items,
+                                        structuredClone(item),
+                                      ],
+                                    }
+                                  : r,
+                            ),
+                          }))
+                        }
+                        order={(d) =>
+                          update((q) => ({
+                            ...q,
+                            rooms: q.rooms.map((r) => {
+                              if (r.id !== room.id) return r;
+                              const a = [...r.items],
+                                j = i + d;
+                              if (j < 0 || j >= a.length) return r;
+                              [a[i], a[j]] = [a[j], a[i]];
+                              return { ...r, items: a };
+                            }),
+                          }))
+                        }
+                      />
+                    ))}
                   <Button
                     className="add-item"
                     variant="outline"
@@ -1459,7 +1950,12 @@ function Builder({ s }: { s: Store }) {
                 variant="outline"
                 key={name}
                 onClick={() => {
-                  const r = { id: uid(), name, items: [] };
+                  const r = {
+                    id: uid(),
+                    name,
+                    floorId: selectedFloorId || projectFloors[0]?.id,
+                    items: [],
+                  };
                   update((q) => ({ ...q, rooms: [...q.rooms, r] }));
                   setRid(r.id);
                   setRoomModal(false);
@@ -1468,6 +1964,180 @@ function Builder({ s }: { s: Store }) {
                 {name}
               </Button>
             ))}
+            <Button
+              variant="outline"
+              onClick={() => {
+                const name = window.prompt('Custom space name');
+                if (!name?.trim()) return;
+                const r = {
+                  id: uid(),
+                  name: name.trim(),
+                  floorId: selectedFloorId || projectFloors[0]?.id,
+                  items: [],
+                };
+                update((q) => ({ ...q, rooms: [...q.rooms, r] }));
+                setRid(r.id);
+                setRoomModal(false);
+              }}
+            >
+              <Plus /> Add custom space
+            </Button>
+          </div>
+        </Modal>
+      )}
+      {structureModal && (
+        <Modal title="Floors & spaces" close={() => setStructureModal(false)}>
+          <div className="structure-editor">
+            {projectFloors.map((floor, index) => (
+              <section key={floor.id}>
+                <header>
+                  <Input
+                    value={floor.name}
+                    onChange={(e) =>
+                      update((q) => ({
+                        ...q,
+                        floors: (q.floors ?? []).map((x) =>
+                          x.id === floor.id
+                            ? { ...x, name: e.target.value }
+                            : x,
+                        ),
+                      }))
+                    }
+                  />
+                  <Button
+                    variant="ghost"
+                    disabled={!index}
+                    onClick={() =>
+                      update((q) => {
+                        const next = [...(q.floors ?? [])];
+                        [next[index - 1], next[index]] = [
+                          next[index],
+                          next[index - 1],
+                        ];
+                        return { ...q, floors: next };
+                      })
+                    }
+                  >
+                    <ChevronUp />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    disabled={index === projectFloors.length - 1}
+                    onClick={() =>
+                      update((q) => {
+                        const next = [...(q.floors ?? [])];
+                        [next[index + 1], next[index]] = [
+                          next[index],
+                          next[index + 1],
+                        ];
+                        return { ...q, floors: next };
+                      })
+                    }
+                  >
+                    <ChevronDown />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    disabled={projectFloors.length === 1}
+                    onClick={() => {
+                      const count = p.rooms
+                        .filter((space) => space.floorId === floor.id)
+                        .reduce((sum, space) => sum + space.items.length, 0);
+                      if (
+                        count &&
+                        !window.confirm(
+                          `Delete ${floor.name} and ${count} BOQ items?`,
+                        )
+                      )
+                        return;
+                      update((q) => ({
+                        ...q,
+                        floors: (q.floors ?? []).filter(
+                          (x) => x.id !== floor.id,
+                        ),
+                        rooms: q.rooms.filter(
+                          (space) => space.floorId !== floor.id,
+                        ),
+                      }));
+                    }}
+                  >
+                    <Trash2 />
+                  </Button>
+                </header>
+                {p.rooms
+                  .filter((space) => space.floorId === floor.id)
+                  .map((space) => (
+                    <div key={space.id}>
+                      <Input
+                        value={space.name}
+                        onChange={(e) =>
+                          update((q) => ({
+                            ...q,
+                            rooms: q.rooms.map((x) =>
+                              x.id === space.id
+                                ? { ...x, name: e.target.value }
+                                : x,
+                            ),
+                          }))
+                        }
+                      />
+                      <select
+                        value={space.floorId}
+                        onChange={(e) =>
+                          update((q) => ({
+                            ...q,
+                            rooms: q.rooms.map((x) =>
+                              x.id === space.id
+                                ? { ...x, floorId: e.target.value }
+                                : x,
+                            ),
+                          }))
+                        }
+                      >
+                        {projectFloors.map((x) => (
+                          <option value={x.id} key={x.id}>
+                            {x.name}
+                          </option>
+                        ))}
+                      </select>
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          if (
+                            space.items.length &&
+                            !window.confirm(
+                              `Delete ${space.name} and its ${space.items.length} BOQ items?`,
+                            )
+                          )
+                            return;
+                          void s.deleteRoom(p.id, space.id);
+                        }}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </div>
+                  ))}
+              </section>
+            ))}
+          </div>
+          <div className="actions">
+            <Button
+              variant="outline"
+              onClick={() => {
+                const name = window.prompt('New floor name');
+                if (name?.trim())
+                  update((q) => ({
+                    ...q,
+                    floors: [
+                      ...(q.floors ?? []),
+                      { id: uid(), name: name.trim() },
+                    ],
+                  }));
+              }}
+            >
+              <Plus /> Add floor
+            </Button>
+            <Button onClick={() => setStructureModal(false)}>Done</Button>
           </div>
         </Modal>
       )}
@@ -1482,7 +2152,19 @@ function Builder({ s }: { s: Store }) {
                     ...q,
                     rooms: q.rooms.map((x) =>
                       x.id === room.id
-                        ? { ...x, items: [...x.items, fresh(r)] }
+                        ? {
+                            ...x,
+                            items: [
+                              ...x.items,
+                              {
+                                ...fresh(r),
+                                workType:
+                                  selectedWorkType === 'All'
+                                    ? 'Millwork'
+                                    : selectedWorkType,
+                              },
+                            ],
+                          }
                         : x,
                     ),
                   }));
@@ -1502,7 +2184,19 @@ function Builder({ s }: { s: Store }) {
                   ...q,
                   rooms: q.rooms.map((x) =>
                     x.id === room.id
-                      ? { ...x, items: [...x.items, fresh()] }
+                      ? {
+                          ...x,
+                          items: [
+                            ...x.items,
+                            {
+                              ...fresh(),
+                              workType:
+                                selectedWorkType === 'All'
+                                  ? 'Other'
+                                  : selectedWorkType,
+                            },
+                          ],
+                        }
                       : x,
                   ),
                 }));
@@ -1537,7 +2231,11 @@ function Builder({ s }: { s: Store }) {
               </label>
             </div>
             <div className="actions">
-              <Button type="button" variant="outline" onClick={() => setRenameModal(false)}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setRenameModal(false)}
+              >
                 Cancel
               </Button>
               <Button type="submit" disabled={!renameValue.trim()}>
@@ -1649,26 +2347,39 @@ function QuickMeasure({
   );
   return (
     <div className="quick-measure">
-      {item.measurementType === 'sqft' && (
-        <>
-          {field('Length', item.length, 'length', 'ft')}
-          <i>×</i>
-          {field('Width', item.width, 'width', 'ft')}
-          <em>{itemMeasure(item).toLocaleString('en-IN')} sqft</em>
-        </>
-      )}
-      {item.measurementType === 'rft' && (
-        <>
-          {field('Length', item.length, 'length', 'ft')}
-          <em>{itemMeasure(item).toLocaleString('en-IN')} rft</em>
-        </>
-      )}
-      {item.measurementType === 'quantity' && (
+      {item.measureMode !== 'dimensions' && (
         <>
           {field('Quantity', item.quantity, 'quantity')}
-          <em>{itemMeasure(item).toLocaleString('en-IN')} units</em>
+          <em>
+            {itemMeasure(item).toLocaleString('en-IN')}{' '}
+            {item.customUnit || item.unit || 'Nos'}
+          </em>
         </>
       )}
+      {item.measureMode === 'dimensions' &&
+        (item.unit === 'Sq.ft' ||
+          item.unit === 'Sq.m' ||
+          item.measurementType === 'sqft') && (
+          <>
+            {field('Length', item.length, 'length', item.dimensionUnit ?? 'ft')}
+            <i>×</i>
+            {field('Width', item.width, 'width', item.dimensionUnit ?? 'ft')}
+            <em>
+              {itemMeasure(item).toLocaleString('en-IN')} {item.unit ?? 'Sq.ft'}
+            </em>
+          </>
+        )}
+      {item.measureMode === 'dimensions' &&
+        (item.unit === 'R.ft' ||
+          item.unit === 'R.m' ||
+          item.measurementType === 'rft') && (
+          <>
+            {field('Length', item.length, 'length', item.dimensionUnit ?? 'ft')}
+            <em>
+              {itemMeasure(item).toLocaleString('en-IN')} {item.unit ?? 'R.ft'}
+            </em>
+          </>
+        )}
     </div>
   );
 }
@@ -1852,55 +2563,123 @@ function Item({
           </div>
           <div className="measure">
             <label>
-              Measurement
+              Work type
               <select
-                value={item.measurementType}
-                onChange={(e) =>
-                  patch({ measurementType: e.target.value as MeasurementType })
-                }
+                value={item.workType ?? 'Other'}
+                onChange={(e) => patch({ workType: e.target.value })}
               >
-                <option value="sqft">Square feet</option>
-                <option value="rft">Running feet</option>
-                <option value="quantity">Quantity</option>
-                <option value="flat">Flat amount</option>
+                {WORK_TYPES.map((workType) => (
+                  <option key={workType}>{workType}</option>
+                ))}
               </select>
             </label>
-            {item.measurementType === 'sqft' && (
-              <>
-                <label>
-                  Length (ft)
-                  <Num
-                    value={item.length}
-                    onChange={(v) => patch({ length: v })}
-                  />
-                </label>
-                <label>
-                  Width (ft)
-                  <Num
-                    value={item.width}
-                    onChange={(v) => patch({ width: v })}
-                  />
-                </label>
-              </>
-            )}
-            {item.measurementType === 'rft' && (
+            <label>
+              Unit
+              <select
+                value={item.unit ?? unitForMeasurement(item.measurementType)}
+                onChange={(e) => {
+                  const unit = e.target.value as BoqUnit;
+                  patch({
+                    unit,
+                    measurementType: measurementForUnit(unit),
+                    pricingMode: unit === 'Lump Sum' ? 'lump-sum' : 'unit',
+                  });
+                }}
+              >
+                {[
+                  'Nos',
+                  'Sq.ft',
+                  'Sq.m',
+                  'R.ft',
+                  'R.m',
+                  'Kg',
+                  'Ltr',
+                  'Set',
+                  'Lot',
+                  'Lump Sum',
+                  'Custom',
+                ].map((unit) => (
+                  <option key={unit}>{unit}</option>
+                ))}
+              </select>
+            </label>
+            {item.unit === 'Custom' && (
               <label>
-                Length (ft)
-                <Num
-                  value={item.length}
-                  onChange={(v) => patch({ length: v })}
+                Custom unit
+                <Input
+                  value={item.customUnit ?? ''}
+                  onChange={(e) => patch({ customUnit: e.target.value })}
                 />
               </label>
             )}
-            {item.measurementType === 'quantity' && (
-              <label>
-                Quantity
-                <Num
-                  value={item.quantity}
-                  onChange={(v) => patch({ quantity: v })}
-                />
-              </label>
-            )}
+            <label>
+              Pricing
+              <select
+                value={item.pricingMode ?? 'unit'}
+                onChange={(e) =>
+                  patch({
+                    pricingMode: e.target.value as QuoteItem['pricingMode'],
+                  })
+                }
+              >
+                <option value="unit">Unit rate</option>
+                <option value="lump-sum">Lump sum</option>
+              </select>
+            </label>
+            <label>
+              Quantity
+              <Num
+                value={item.quantity}
+                onChange={(quantity) => patch({ quantity })}
+              />
+            </label>
+            <label>
+              Measurement basis
+              <select
+                value={item.measureMode ?? 'quantity'}
+                onChange={(e) =>
+                  patch({
+                    measureMode: e.target.value as QuoteItem['measureMode'],
+                  })
+                }
+              >
+                <option value="quantity">Entered quantity</option>
+                <option value="dimensions">Calculate from dimensions</option>
+              </select>
+            </label>
+            <label>
+              Dimension unit
+              <select
+                value={item.dimensionUnit ?? 'ft'}
+                onChange={(e) =>
+                  patch({
+                    dimensionUnit: e.target.value as QuoteItem['dimensionUnit'],
+                  })
+                }
+              >
+                {['mm', 'cm', 'ft', 'm'].map((unit) => (
+                  <option key={unit}>{unit}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Optional length
+              <Num
+                value={item.length}
+                onChange={(length) => patch({ length })}
+              />
+            </label>
+            <label>
+              Optional width / depth
+              <Num value={item.width} onChange={(width) => patch({ width })} />
+            </label>
+            <label>
+              Optional height
+              <Num
+                value={item.height}
+                onChange={(height) => patch({ height })}
+              />
+            </label>
             <label>
               Tier
               <select
@@ -1920,7 +2699,8 @@ function Item({
               </select>
             </label>
             <label>
-              Project rate / {item.measurementType}
+              Project rate /{' '}
+              {item.customUnit || item.unit || item.measurementType}
               <Num value={rate} onChange={(v) => patch({ rateOverride: v })} />
             </label>
             <label>
@@ -1931,10 +2711,18 @@ function Item({
               />
             </label>
             <div className="formula">
-              {itemMeasure(item).toLocaleString('en-IN')} {item.measurementType}{' '}
-              × {inr(rate)}
+              {itemMeasure(item).toLocaleString('en-IN')}{' '}
+              {item.customUnit || item.unit || item.measurementType} ×{' '}
+              {inr(rate)}
             </div>
           </div>
+          <label className="item-notes">
+            HSN code
+            <Input
+              value={item.hsnCode ?? ''}
+              onChange={(event) => patch({ hsnCode: event.target.value })}
+            />
+          </label>
           <label className="item-notes">
             Notes
             <textarea
@@ -1949,13 +2737,15 @@ function Item({
                 <span>
                   Original rate{' '}
                   <strong>
-                    {inr(referenceRate)} / {item.measurementType}
+                    {inr(referenceRate)} /{' '}
+                    {item.customUnit || item.unit || item.measurementType}
                   </strong>
                 </span>
                 <span>
                   Project rate{' '}
                   <strong>
-                    {inr(item.rateOverride)} / {item.measurementType}
+                    {inr(item.rateOverride)} /{' '}
+                    {item.customUnit || item.unit || item.measurementType}
                   </strong>
                 </span>
                 <span>

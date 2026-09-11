@@ -3,12 +3,73 @@ import type { FirmSettings, QuoteItem, RateCardItem } from './types';
 const id = () => crypto.randomUUID();
 
 export const rateCard: RateCardItem[] = [
-  ['Wardrobe', 'Modular wardrobe with internal fittings', 'sqft', [1450, 1850, 2400]],
+  [
+    'Wardrobe',
+    'Modular wardrobe with internal fittings',
+    'sqft',
+    [1450, 1850, 2400],
+  ],
   ['TV Unit', 'Storage-led media console', 'sqft', [1200, 1500, 2000]],
   ['False Ceiling', 'Gypsum ceiling with channels', 'sqft', [140, 180, 240]],
   ['Base Cabinets', 'Modular kitchen base units', 'rft', [9000, 11500, 14500]],
   ['Wall Cabinets', 'Modular kitchen wall units', 'rft', [7500, 9200, 12000]],
   ['Bed Back Panel', 'Upholstered feature panel', 'sqft', [850, 1100, 1550]],
+  [
+    'Shoe Seater',
+    'Custom plywood seating with storage below',
+    'quantity',
+    [0, 0, 0],
+  ],
+  [
+    'Shoe Storage',
+    'Custom plywood shoe storage with shutters',
+    'quantity',
+    [0, 0, 0],
+  ],
+  [
+    'Demolition',
+    'Demolition of walls, doors or windows as specified',
+    'sqft',
+    [0, 0, 0],
+  ],
+  [
+    'Construction of Walls',
+    'Construction of walls and openings as specified',
+    'sqft',
+    [0, 0, 0],
+  ],
+  ['Sliding Door', 'Custom sliding door with top track', 'quantity', [0, 0, 0]],
+  [
+    'Ceiling Light',
+    'Supply and installation of ceiling light',
+    'quantity',
+    [0, 0, 0],
+  ],
+  [
+    'Pendant Light',
+    'Supply and installation of pendant light',
+    'quantity',
+    [0, 0, 0],
+  ],
+  [
+    'Mirror',
+    'Supply and installation of mirror as selected',
+    'quantity',
+    [0, 0, 0],
+  ],
+  [
+    '5-Seater Sofa',
+    'Supply of five-seater sofa as selected',
+    'quantity',
+    [0, 0, 0],
+  ],
+  ['Vanity', 'Custom vanity with drawers and shutters', 'quantity', [0, 0, 0]],
+  [
+    'Shower Cubicle',
+    'Frameless toughened-glass shower partition',
+    'quantity',
+    [0, 0, 0],
+  ],
 ].map(([name, description, unit, rates]) => ({
   id: id(),
   name: name as string,

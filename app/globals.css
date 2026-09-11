@@ -22,6 +22,182 @@
   --color-accent-foreground: var(--foreground);
   --radius: 8px;
 }
+
+/* Flexible BOQ structure */
+.setup-progress {
+  height: 4px;
+  background: var(--border);
+  border-radius: 9px;
+  overflow: hidden;
+  margin: -0.25rem 0 1.25rem;
+}
+.setup-progress span {
+  display: block;
+  height: 100%;
+  background: var(--primary);
+  transition: width 0.2s;
+}
+.setup-list > p,
+.setup-review > p {
+  color: var(--muted-foreground);
+}
+.setup-list > div {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 0.4rem;
+  margin: 0.55rem 0;
+}
+.setup-list svg {
+  width: 17px;
+}
+.preset-row {
+  display: flex !important;
+  grid-template-columns: none !important;
+  flex-wrap: wrap;
+  margin-top: 1rem !important;
+}
+.space-setup {
+  display: grid;
+  gap: 1rem;
+  max-height: 55vh;
+  overflow: auto;
+}
+.space-setup section,
+.setup-review section {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+.space-setup h3,
+.setup-review h3 {
+  margin: 0 0 0.7rem;
+}
+.space-setup select {
+  width: 100%;
+  margin: 0.6rem 0;
+}
+.space-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+.space-chips button {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.55rem 0.7rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--secondary);
+  font: inherit;
+}
+.space-chips svg {
+  width: 14px;
+  height: 14px;
+}
+.boq-drilldown {
+  padding: 1rem 1.35rem 0.4rem;
+  display: grid;
+  gap: 0.8rem;
+  background: var(--background);
+}
+.boq-drilldown small {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--muted-foreground);
+}
+.boq-drilldown > div > div {
+  display: flex;
+  gap: 0.45rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.boq-drilldown button {
+  flex: 0 0 auto;
+  min-height: 42px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: 12px;
+  padding: 0.55rem 0.75rem;
+  font: inherit;
+  font-weight: 650;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.boq-drilldown button.active {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-color: var(--primary);
+}
+.boq-drilldown button span {
+  font-size: 0.75rem;
+  opacity: 0.7;
+}
+.boq-drilldown svg {
+  width: 16px;
+}
+@media (max-width: 800px) {
+  .boq-drilldown {
+    padding: 0.75rem 0.8rem 0.35rem;
+  }
+  .boq-drilldown button {
+    min-height: 46px;
+  }
+  .space-setup {
+    max-height: 62vh;
+  }
+  .setup-list > div {
+    grid-template-columns: 1fr auto auto;
+  }
+  .setup-list > div > button:last-child {
+    grid-column: 3;
+  }
+  .form-grid .wide {
+    grid-column: 1/-1;
+  }
+}
+.structure-editor {
+  display: grid;
+  gap: 1rem;
+  max-height: 60vh;
+  overflow: auto;
+}
+.structure-editor section {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 0.8rem;
+}
+.structure-editor header,
+.structure-editor section > div {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 0.4rem;
+  align-items: center;
+}
+.structure-editor section > div {
+  grid-template-columns: 1fr minmax(120px, auto) auto;
+  margin-top: 0.5rem;
+}
+.structure-editor svg {
+  width: 16px;
+}
+@media (max-width: 600px) {
+  .structure-editor section > div {
+    grid-template-columns: 1fr auto;
+  }
+  .structure-editor section > div select {
+    grid-column: 1;
+  }
+  .structure-editor header {
+    grid-template-columns: 1fr auto auto;
+  }
+  .structure-editor header > button:last-child {
+    grid-column: 3;
+  }
+}
 :root {
   --background: #f6f5f1;
   --foreground: #17201d;
@@ -2767,11 +2943,8 @@ body {
   padding-bottom: calc(14px + var(--safe-bottom));
 }
 .backdrop {
-  padding:
-    calc(24px + var(--safe-top))
-    calc(24px + var(--safe-right))
-    calc(24px + var(--safe-bottom))
-    calc(24px + var(--safe-left));
+  padding: calc(24px + var(--safe-top)) calc(24px + var(--safe-right))
+    calc(24px + var(--safe-bottom)) calc(24px + var(--safe-left));
 }
 .modal {
   max-height: calc(100dvh - 48px - var(--safe-top) - var(--safe-bottom));
