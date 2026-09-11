@@ -11,6 +11,7 @@ import {
 } from 'react-router-dom';
 import {
   BarChart3,
+  Building2,
   BriefcaseBusiness,
   ChevronDown,
   ChevronLeft,
@@ -20,11 +21,13 @@ import {
   ClipboardList,
   Copy,
   Download,
+  DoorOpen,
   FileClock,
   FileSpreadsheet,
   Gauge,
   Menu,
   MoreHorizontal,
+  MoreVertical,
   Pencil,
   Plus,
   Printer,
@@ -408,10 +411,14 @@ function Shell({ s }: { s: Store }) {
 }
 function Modal({
   title,
+  subtitle,
+  className,
   close,
   children,
 }: {
   title: string;
+  subtitle?: string;
+  className?: string;
   close: () => void;
   children: React.ReactNode;
 }) {
@@ -420,13 +427,19 @@ function Modal({
       className="backdrop"
       onMouseDown={(e) => e.target === e.currentTarget && close()}
     >
-      <section className="modal">
+      <section className={`modal ${className ?? ''}`}>
         <header>
           <div>
             <small>NEBULOUS DESIGN</small>
             <h2>{title}</h2>
+            {subtitle && <p>{subtitle}</p>}
           </div>
-          <Button variant="ghost" size="icon-lg" onClick={close}>
+          <Button
+            variant="ghost"
+            size="icon-lg"
+            onClick={close}
+            aria-label={`Close ${title}`}
+          >
             <X />
           </Button>
         </header>
@@ -1632,6 +1645,8 @@ function Builder({ s }: { s: Store }) {
     [selectedFloorId, setSelectedFloorId] = useState(p?.floors?.[0]?.id ?? ''),
     [mobileSpaceDetail, setMobileSpaceDetail] = useState(false),
     [structureModal, setStructureModal] = useState(false),
+    [expandedFloorId, setExpandedFloorId] = useState(p?.floors?.[0]?.id ?? ''),
+    [floorMenuId, setFloorMenuId] = useState(''),
     [roomsOpen, setRoomsOpen] = useState(() => window.innerWidth > 1100),
     [summaryOpen, setSummaryOpen] = useState(() => window.innerWidth > 1100);
   if (!p && !s.hydrated)
@@ -1655,6 +1670,11 @@ function Builder({ s }: { s: Store }) {
         item.enabled &&
         (selectedWorkType === 'All' || item.workType === selectedWorkType),
     );
+  const roomFilteredItems = (space: Room) =>
+    space.items.filter(
+      (item) =>
+        selectedWorkType === 'All' || item.workType === selectedWorkType,
+    );
   const roomWorkTypeTotal = (space: Room) =>
     roomWorkTypeItems(space).reduce(
       (sum, item) => sum + itemTotal(item, p.defaultTier),
@@ -1676,6 +1696,21 @@ function Builder({ s }: { s: Store }) {
           : r,
       ),
     }));
+  const addSpaceToFloor = (floorId: string, floorName: string) => {
+    const name = window.prompt(`Add a space to ${floorName}`);
+    if (!name?.trim()) return;
+    const newRoom: Room = {
+      id: uid(),
+      name: name.trim(),
+      floorId,
+      items: [],
+    };
+    update((project) => ({
+      ...project,
+      rooms: [...project.rooms, newRoom],
+    }));
+    setRid(newRoom.id);
+  };
   function saveRev(note: string) {
     const project = p!;
     const prior = s.revisions.filter((r) => r.projectId === project.id);
@@ -1809,97 +1844,61 @@ function Builder({ s }: { s: Store }) {
       </header>
       <nav className="boq-drilldown" aria-label="BOQ navigation">
         <div className="boq-filter-group">
-          <small>WORK TYPE</small>
-          <select
-            className="boq-mobile-select"
-            aria-label="Work type"
-            value={selectedWorkType}
-            onChange={(event) => {
-              setSelectedWorkType(event.target.value);
-              setMobileSpaceDetail(false);
-            }}
-          >
-            {workTypeOptions.map((workType) => (
-              <option key={workType}>{workType}</option>
-            ))}
-          </select>
-          <div className="boq-chip-row">
-            {workTypeOptions.map((workType) => (
-              <button
-                className={selectedWorkType === workType ? 'active' : ''}
-                key={workType}
-                onClick={() => {
-                  setSelectedWorkType(workType);
-                  setMobileSpaceDetail(false);
-                }}
-              >
-                {workType}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="boq-filter-group floor-filter-group">
-          <span className="boq-filter-label">
-            <small>FLOOR</small>
-            <button
-              className="structure-action"
-              onClick={() => setStructureModal(true)}
-              aria-label="Edit floors and spaces"
-              title="Edit floors and spaces"
-            >
-              <Settings />
-              <span>Structure</span>
-            </button>
-          </span>
-          <select
-            className="boq-mobile-select"
-            aria-label="Floor"
-            value={selectedFloorId}
-            onChange={(event) => {
-              const floorId = event.target.value;
-              setSelectedFloorId(floorId);
-              setRid(
-                p.rooms.find((space) => !floorId || space.floorId === floorId)
-                  ?.id ?? '',
-              );
-              setMobileSpaceDetail(false);
-            }}
-          >
-            <option value="">All Floors</option>
-            {projectFloors.map((floor) => (
-              <option value={floor.id} key={floor.id}>
-                {floor.name}
-              </option>
-            ))}
-          </select>
-          <div className="boq-chip-row">
-            <button
-              className={!selectedFloorId ? 'active' : ''}
-              onClick={() => {
-                setSelectedFloorId('');
-                setRid(p.rooms[0]?.id ?? '');
+          <label htmlFor="boq-work-type">Work Type</label>
+          <div className="boq-select-control">
+            <BriefcaseBusiness />
+            <select
+              id="boq-work-type"
+              aria-label="Work type"
+              value={selectedWorkType}
+              onChange={(event) => {
+                setSelectedWorkType(event.target.value);
                 setMobileSpaceDetail(false);
               }}
             >
-              All Floors
-            </button>
-            {projectFloors.map((floor) => (
-              <button
-                className={selectedFloorId === floor.id ? 'active' : ''}
-                key={floor.id}
-                onClick={() => {
-                  setSelectedFloorId(floor.id);
-                  setRid(
-                    p.rooms.find((space) => space.floorId === floor.id)?.id ??
-                      '',
-                  );
-                  setMobileSpaceDetail(false);
-                }}
-              >
-                {floor.name}
-              </button>
-            ))}
+              {workTypeOptions.map((workType) => (
+                <option key={workType} value={workType}>
+                  {workType === 'All' ? 'All Work Types' : workType}
+                </option>
+              ))}
+            </select>
+            <ChevronDown />
           </div>
+        </div>
+        <div className="boq-filter-group floor-filter-group">
+          <label htmlFor="boq-floor">Floor</label>
+          <div className="boq-select-control">
+            <Building2 />
+            <select
+              id="boq-floor"
+              aria-label="Floor"
+              value={selectedFloorId}
+              onChange={(event) => {
+                const floorId = event.target.value;
+                setSelectedFloorId(floorId);
+                setRid(
+                  p.rooms.find((space) => !floorId || space.floorId === floorId)
+                    ?.id ?? '',
+                );
+                setMobileSpaceDetail(false);
+              }}
+            >
+              <option value="">All Floors</option>
+              {projectFloors.map((floor) => (
+                <option value={floor.id} key={floor.id}>
+                  {floor.name}
+                </option>
+              ))}
+            </select>
+            <ChevronDown />
+          </div>
+        </div>
+        <div className="boq-quick-action">
+          <small>Quick Actions</small>
+          <Button variant="outline" onClick={() => setStructureModal(true)}>
+            <Settings />
+            Manage Floors & Spaces
+          </Button>
         </div>
       </nav>
       <section
@@ -1924,7 +1923,10 @@ function Builder({ s }: { s: Store }) {
                   setMobileSpaceDetail(true);
                 }}
               >
-                <span>
+                <span className="space-nav-icon" aria-hidden="true">
+                  <DoorOpen />
+                </span>
+                <span className="space-nav-copy">
                   <strong>{space.name}</strong>
                   <small>
                     {items.length} {items.length === 1 ? 'item' : 'items'}
@@ -1945,10 +1947,21 @@ function Builder({ s }: { s: Store }) {
       >
         <aside className={`rooms ${roomsOpen ? 'panel-open' : 'panel-closed'}`}>
           <header>
-            <b>SPACES</b>
-            <button onClick={() => setRoomsOpen(false)} aria-label="Hide rooms">
-              <PanelLeftClose />
-            </button>
+            <span>
+              <b>SPACES</b>
+              <small>{visibleRooms.length}</small>
+            </span>
+            <div>
+              <button onClick={() => setRoomModal(true)} aria-label="Add space">
+                <Plus />
+              </button>
+              <button
+                onClick={() => setRoomsOpen(false)}
+                aria-label="Hide rooms"
+              >
+                <PanelLeftClose />
+              </button>
+            </div>
           </header>
           {visibleRooms.map((r, i) => (
             <article
@@ -1957,7 +1970,10 @@ function Builder({ s }: { s: Store }) {
               onClick={() => setRid(r.id)}
             >
               <button>
-                <span>
+                <span className="space-nav-icon" aria-hidden="true">
+                  <DoorOpen />
+                </span>
+                <span className="space-nav-copy">
                   <strong>{r.name}</strong>
                   <small>
                     {roomWorkTypeItems(r).length}{' '}
@@ -2100,13 +2116,38 @@ function Builder({ s }: { s: Store }) {
                   </span>
                 </header>
                 <div className="room-components">
-                  {room.items
-                    .filter(
-                      (item) =>
-                        selectedWorkType === 'All' ||
-                        item.workType === selectedWorkType,
-                    )
-                    .map((item, i) => (
+                  {roomFilteredItems(room).length === 0 ? (
+                    <div className="room-empty-state">
+                      <span className="empty-state-icon" aria-hidden="true">
+                        <ClipboardList />
+                      </span>
+                      <h3>No items yet</h3>
+                      <p>
+                        Add BOQ items to this space to start building your
+                        quotation.
+                      </p>
+                      <div>
+                        <Button size="lg" onClick={() => setItemModal(true)}>
+                          <Plus /> Add BOQ Item
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="lg"
+                          onClick={() => setItemModal(true)}
+                        >
+                          <ClipboardList /> Browse Item Templates
+                        </Button>
+                      </div>
+                      <aside>
+                        <strong>Tip</strong>
+                        <span>
+                          You can add any item to any space. There are no work
+                          type restrictions.
+                        </span>
+                      </aside>
+                    </div>
+                  ) : (
+                    roomFilteredItems(room).map((item, i) => (
                       <Item
                         key={item.id}
                         item={item}
@@ -2189,16 +2230,19 @@ function Builder({ s }: { s: Store }) {
                           }))
                         }
                       />
-                    ))}
-                  <Button
-                    className="add-item"
-                    variant="outline"
-                    size="lg"
-                    onClick={() => setItemModal(true)}
-                  >
-                    <Plus />
-                    Add item to {room.name}
-                  </Button>
+                    ))
+                  )}
+                  {roomFilteredItems(room).length > 0 && (
+                    <Button
+                      className="add-item"
+                      variant="outline"
+                      size="lg"
+                      onClick={() => setItemModal(true)}
+                    >
+                      <Plus />
+                      Add item to {room.name}
+                    </Button>
+                  )}
                 </div>
               </section>
             </>
@@ -2266,141 +2310,228 @@ function Builder({ s }: { s: Store }) {
         </Modal>
       )}
       {structureModal && (
-        <Modal title="Floors & spaces" close={() => setStructureModal(false)}>
+        <Modal
+          title="Floors & Spaces"
+          subtitle="Manage the floors and spaces for this project"
+          className="structure-modal"
+          close={() => setStructureModal(false)}
+        >
           <div className="structure-editor">
-            {projectFloors.map((floor, index) => (
-              <section key={floor.id}>
-                <header>
-                  <Input
-                    value={floor.name}
-                    onChange={(e) =>
-                      update((q) => ({
-                        ...q,
-                        floors: (q.floors ?? []).map((x) =>
-                          x.id === floor.id
-                            ? { ...x, name: e.target.value }
-                            : x,
-                        ),
-                      }))
-                    }
-                  />
-                  <Button
-                    variant="ghost"
-                    disabled={!index}
-                    onClick={() =>
-                      update((q) => {
-                        const next = [...(q.floors ?? [])];
-                        [next[index - 1], next[index]] = [
-                          next[index],
-                          next[index - 1],
-                        ];
-                        return { ...q, floors: next };
-                      })
-                    }
-                  >
-                    <ChevronUp />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    disabled={index === projectFloors.length - 1}
-                    onClick={() =>
-                      update((q) => {
-                        const next = [...(q.floors ?? [])];
-                        [next[index + 1], next[index]] = [
-                          next[index],
-                          next[index + 1],
-                        ];
-                        return { ...q, floors: next };
-                      })
-                    }
-                  >
-                    <ChevronDown />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    disabled={projectFloors.length === 1}
-                    onClick={() => {
-                      const count = p.rooms
-                        .filter((space) => space.floorId === floor.id)
-                        .reduce((sum, space) => sum + space.items.length, 0);
-                      if (
-                        count &&
-                        !window.confirm(
-                          `Delete ${floor.name} and ${count} BOQ items?`,
-                        )
-                      )
-                        return;
-                      update((q) => ({
-                        ...q,
-                        floors: (q.floors ?? []).filter(
-                          (x) => x.id !== floor.id,
-                        ),
-                        rooms: q.rooms.filter(
-                          (space) => space.floorId !== floor.id,
-                        ),
-                      }));
-                    }}
-                  >
-                    <Trash2 />
-                  </Button>
-                </header>
-                {p.rooms
-                  .filter((space) => space.floorId === floor.id)
-                  .map((space) => (
-                    <div key={space.id}>
+            {projectFloors.map((floor, index) => {
+              const floorRooms = p.rooms.filter(
+                (space) => space.floorId === floor.id,
+              );
+              const floorTotal = floorRooms.reduce(
+                (sum, space) => sum + roomTotal(space, p.defaultTier),
+                0,
+              );
+              const expanded = expandedFloorId === floor.id;
+              return (
+                <section
+                  key={floor.id}
+                  className={`floor-section ${expanded ? 'expanded' : ''}`}
+                >
+                  <header>
+                    <span className="floor-icon" aria-hidden="true">
+                      <Building2 />
+                    </span>
+                    <label>
                       <Input
-                        value={space.name}
+                        aria-label={`Rename ${floor.name}`}
+                        value={floor.name}
                         onChange={(e) =>
                           update((q) => ({
                             ...q,
-                            rooms: q.rooms.map((x) =>
-                              x.id === space.id
+                            floors: (q.floors ?? []).map((x) =>
+                              x.id === floor.id
                                 ? { ...x, name: e.target.value }
                                 : x,
                             ),
                           }))
                         }
                       />
-                      <select
-                        value={space.floorId}
-                        onChange={(e) =>
-                          update((q) => ({
-                            ...q,
-                            rooms: q.rooms.map((x) =>
-                              x.id === space.id
-                                ? { ...x, floorId: e.target.value }
-                                : x,
-                            ),
-                          }))
-                        }
-                      >
-                        {projectFloors.map((x) => (
-                          <option value={x.id} key={x.id}>
-                            {x.name}
-                          </option>
-                        ))}
-                      </select>
+                      <small>
+                        {floorRooms.length}{' '}
+                        {floorRooms.length === 1 ? 'space' : 'spaces'}
+                      </small>
+                    </label>
+                    <strong>{inr(floorTotal)}</strong>
+                    <Button
+                      variant="ghost"
+                      size="icon-lg"
+                      onClick={() =>
+                        setExpandedFloorId(expanded ? '' : floor.id)
+                      }
+                      aria-label={`${expanded ? 'Collapse' : 'Expand'} ${floor.name}`}
+                      aria-expanded={expanded}
+                    >
+                      {expanded ? <ChevronUp /> : <ChevronDown />}
+                    </Button>
+                    <Button
+                      className="floor-action-mark"
+                      variant="ghost"
+                      size="icon-lg"
+                      onClick={() =>
+                        setFloorMenuId(floorMenuId === floor.id ? '' : floor.id)
+                      }
+                      aria-label={`Actions for ${floor.name}`}
+                      aria-expanded={floorMenuId === floor.id}
+                    >
+                      <MoreVertical />
+                    </Button>
+                    <div
+                      className={`floor-actions ${floorMenuId === floor.id ? 'open' : ''}`}
+                    >
                       <Button
                         variant="ghost"
+                        size="icon-lg"
+                        disabled={!index}
+                        onClick={() =>
+                          update((q) => {
+                            const next = [...(q.floors ?? [])];
+                            [next[index - 1], next[index]] = [
+                              next[index],
+                              next[index - 1],
+                            ];
+                            return { ...q, floors: next };
+                          })
+                        }
+                        aria-label={`Move ${floor.name} up`}
+                      >
+                        <ChevronUp />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-lg"
+                        disabled={index === projectFloors.length - 1}
+                        onClick={() =>
+                          update((q) => {
+                            const next = [...(q.floors ?? [])];
+                            [next[index + 1], next[index]] = [
+                              next[index],
+                              next[index + 1],
+                            ];
+                            return { ...q, floors: next };
+                          })
+                        }
+                        aria-label={`Move ${floor.name} down`}
+                      >
+                        <ChevronDown />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-lg"
+                        disabled={projectFloors.length === 1}
                         onClick={() => {
+                          const count = floorRooms.reduce(
+                            (sum, space) => sum + space.items.length,
+                            0,
+                          );
                           if (
-                            space.items.length &&
+                            count &&
                             !window.confirm(
-                              `Delete ${space.name} and its ${space.items.length} BOQ items?`,
+                              `Delete ${floor.name} and ${count} BOQ items?`,
                             )
                           )
                             return;
-                          void s.deleteRoom(p.id, space.id);
+                          update((q) => ({
+                            ...q,
+                            floors: (q.floors ?? []).filter(
+                              (x) => x.id !== floor.id,
+                            ),
+                            rooms: q.rooms.filter(
+                              (space) => space.floorId !== floor.id,
+                            ),
+                          }));
                         }}
+                        aria-label={`Delete ${floor.name}`}
                       >
                         <Trash2 />
                       </Button>
                     </div>
-                  ))}
-              </section>
-            ))}
+                  </header>
+                  {expanded && (
+                    <div className="floor-spaces">
+                      {floorRooms.map((space) => (
+                        <div className="structure-space-row" key={space.id}>
+                          <span className="space-icon" aria-hidden="true">
+                            <DoorOpen />
+                          </span>
+                          <label>
+                            <Input
+                              aria-label={`Rename ${space.name}`}
+                              value={space.name}
+                              onChange={(e) =>
+                                update((q) => ({
+                                  ...q,
+                                  rooms: q.rooms.map((x) =>
+                                    x.id === space.id
+                                      ? { ...x, name: e.target.value }
+                                      : x,
+                                  ),
+                                }))
+                              }
+                            />
+                            <small>
+                              {space.items.length}{' '}
+                              {space.items.length === 1 ? 'item' : 'items'}
+                            </small>
+                          </label>
+                          <strong>
+                            {inr(roomTotal(space, p.defaultTier))}
+                          </strong>
+                          <select
+                            aria-label={`Move ${space.name} to another floor`}
+                            value={space.floorId}
+                            onChange={(e) =>
+                              update((q) => ({
+                                ...q,
+                                rooms: q.rooms.map((x) =>
+                                  x.id === space.id
+                                    ? { ...x, floorId: e.target.value }
+                                    : x,
+                                ),
+                              }))
+                            }
+                          >
+                            {projectFloors.map((x) => (
+                              <option value={x.id} key={x.id}>
+                                {x.name}
+                              </option>
+                            ))}
+                          </select>
+                          <Button
+                            variant="ghost"
+                            size="icon-lg"
+                            onClick={() => {
+                              if (
+                                space.items.length &&
+                                !window.confirm(
+                                  `Delete ${space.name} and its ${space.items.length} BOQ items?`,
+                                )
+                              )
+                                return;
+                              void s.deleteRoom(p.id, space.id);
+                            }}
+                            aria-label={`Delete ${space.name}`}
+                          >
+                            <Trash2 />
+                          </Button>
+                        </div>
+                      ))}
+                      <button
+                        className="add-space-to-floor"
+                        onClick={() => addSpaceToFloor(floor.id, floor.name)}
+                      >
+                        <Plus /> Add space to {floor.name}
+                      </button>
+                    </div>
+                  )}
+                </section>
+              );
+            })}
           </div>
-          <div className="actions">
+          <div className="actions structure-actions">
             <Button
               variant="outline"
               onClick={() => {
