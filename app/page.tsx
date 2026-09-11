@@ -11,6 +11,7 @@ import {
 } from 'react-router-dom';
 import {
   BarChart3,
+  ArrowRight,
   Building2,
   BriefcaseBusiness,
   ChevronDown,
@@ -19,12 +20,18 @@ import {
   ChevronUp,
   CircleDollarSign,
   ClipboardList,
+  Check,
   Copy,
   Download,
   DoorOpen,
   FileClock,
   FileSpreadsheet,
   Gauge,
+  GripVertical,
+  Home as HomeIcon,
+  Info,
+  Layers,
+  Lightbulb,
   Menu,
   MoreHorizontal,
   MoreVertical,
@@ -463,6 +470,9 @@ function NewProject({ s }: { s: Store }) {
     }),
     [floors, setFloors] = useState(() => [{ id: uid(), name: 'Ground Floor' }]),
     [spaces, setSpaces] = useState<Record<string, string[]>>({}),
+    [expandedFloors, setExpandedFloors] = useState<Record<string, boolean>>({}),
+    [floorMenuId, setFloorMenuId] = useState(''),
+    [addingSpaceFloorId, setAddingSpaceFloorId] = useState(''),
     go = useNavigate();
   const close = () => {
     setOpen(false);
@@ -476,6 +486,15 @@ function NewProject({ s }: { s: Store }) {
       [floorId]: [...(current[floorId] ?? []), value],
     }));
   };
+  const toggleFloor = (floorId: string) =>
+    setExpandedFloors((current) => ({
+      ...current,
+      [floorId]: !(current[floorId] ?? floorId === floors[0]?.id),
+    }));
+  const isFloorOpen = (floorId: string) =>
+    expandedFloors[floorId] ?? floorId === floors[0]?.id;
+  const floorIcon = (name: string) =>
+    name.toLowerCase().includes('ground') ? <HomeIcon /> : <Layers />;
   function create() {
     const chosenSpaces = floors.flatMap((floor) =>
       (spaces[floor.id] ?? []).map((name) => ({
@@ -537,246 +556,406 @@ function NewProject({ s }: { s: Store }) {
         New Project
       </Button>
       {open && (
-        <Modal title={`Create project · ${step} of 4`} close={close}>
-          <div className="setup-progress">
-            <span style={{ width: `${step * 25}%` }} />
+        <Modal
+          title={`Create project · ${step} of 4`}
+          subtitle={
+            [
+              'Enter the essential details for this project.',
+              'Add, rename and order every floor used by the project.',
+              'Add spaces to each floor.',
+              'Review your structure before creating the project.',
+            ][step - 1]
+          }
+          className="new-project-modal"
+          close={close}
+        >
+          <div className="project-stepper" aria-label={`Step ${step} of 4`}>
+            {['Project details', 'Floors', 'Spaces', 'Review'].map(
+              (label, index) => {
+                const number = index + 1;
+                const complete = number < step;
+                const current = number === step;
+                return (
+                  <div
+                    className={`${complete ? 'complete' : ''} ${current ? 'current' : ''}`}
+                    key={label}
+                  >
+                    <span aria-hidden="true">
+                      {complete ? <Check /> : number}
+                    </span>
+                    <small>{label}</small>
+                  </div>
+                );
+              },
+            )}
           </div>
-          {step === 1 && (
-            <div className="form-grid">
-              <label>
-                Project name
-                <Input
-                  value={details.propertyName}
-                  onChange={(e) =>
-                    setDetails({ ...details, propertyName: e.target.value })
-                  }
-                />
-              </label>
-              <label>
-                Client
-                <Input
-                  value={details.clientName}
-                  onChange={(e) =>
-                    setDetails({ ...details, clientName: e.target.value })
-                  }
-                />
-              </label>
-              <label>
-                Property type
-                <Input
-                  value={details.propertyType}
-                  onChange={(e) =>
-                    setDetails({ ...details, propertyType: e.target.value })
-                  }
-                  placeholder="Residence, villa, office…"
-                />
-              </label>
-              <label>
-                Configuration
-                <select
-                  value={details.layout}
-                  onChange={(e) =>
-                    setDetails({ ...details, layout: e.target.value })
-                  }
-                >
-                  {['1 BHK', '2 BHK', '3 BHK', '4 BHK', '5 BHK', 'Other'].map(
-                    (x) => (
-                      <option key={x}>{x}</option>
-                    ),
-                  )}
-                </select>
-              </label>
-              <label>
-                Location
-                <Input
-                  value={details.location}
-                  onChange={(e) =>
-                    setDetails({ ...details, location: e.target.value })
-                  }
-                />
-              </label>
-              <label>
-                Area (sq.ft)
-                <Num
-                  value={details.carpetArea}
-                  onChange={(carpetArea) =>
-                    setDetails({ ...details, carpetArea })
-                  }
-                />
-              </label>
-              <label>
-                Default tier
-                <select
-                  value={details.defaultTier}
-                  onChange={(e) =>
-                    setDetails({
-                      ...details,
-                      defaultTier: e.target.value as Tier,
-                    })
-                  }
-                >
-                  {s.settings.enabledTiers.map((t) => (
-                    <option value={t} key={t}>
-                      {tl(t)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="wide">
-                Notes
-                <textarea
-                  value={details.notes}
-                  onChange={(e) =>
-                    setDetails({ ...details, notes: e.target.value })
-                  }
-                />
-              </label>
-            </div>
-          )}
-          {step === 2 && (
-            <div className="setup-list">
-              <p>Add, rename and order every floor used by the project.</p>
-              {floors.map((floor, index) => (
-                <div key={floor.id}>
+          <div className="project-step-content">
+            {step === 1 && (
+              <div className="form-grid">
+                <label>
+                  Project name
                   <Input
-                    value={floor.name}
+                    value={details.propertyName}
                     onChange={(e) =>
-                      setFloors(
-                        floors.map((x) =>
-                          x.id === floor.id
-                            ? { ...x, name: e.target.value }
-                            : x,
-                        ),
-                      )
+                      setDetails({ ...details, propertyName: e.target.value })
                     }
                   />
-                  <Button
-                    variant="ghost"
-                    disabled={!index}
-                    onClick={() => {
-                      const next = [...floors];
-                      [next[index - 1], next[index]] = [
-                        next[index],
-                        next[index - 1],
-                      ];
-                      setFloors(next);
-                    }}
-                  >
-                    <ChevronUp />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    disabled={index === floors.length - 1}
-                    onClick={() => {
-                      const next = [...floors];
-                      [next[index + 1], next[index]] = [
-                        next[index],
-                        next[index + 1],
-                      ];
-                      setFloors(next);
-                    }}
-                  >
-                    <ChevronDown />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    disabled={floors.length === 1}
-                    onClick={() =>
-                      setFloors(floors.filter((x) => x.id !== floor.id))
+                </label>
+                <label>
+                  Client
+                  <Input
+                    value={details.clientName}
+                    onChange={(e) =>
+                      setDetails({ ...details, clientName: e.target.value })
+                    }
+                  />
+                </label>
+                <label>
+                  Property type
+                  <Input
+                    value={details.propertyType}
+                    onChange={(e) =>
+                      setDetails({ ...details, propertyType: e.target.value })
+                    }
+                    placeholder="Residence, villa, office…"
+                  />
+                </label>
+                <label>
+                  Configuration
+                  <select
+                    value={details.layout}
+                    onChange={(e) =>
+                      setDetails({ ...details, layout: e.target.value })
                     }
                   >
-                    <Trash2 />
-                  </Button>
-                </div>
-              ))}
-              <div className="preset-row">
-                {FLOOR_SUGGESTIONS.filter(
-                  (name) => !floors.some((floor) => floor.name === name),
-                ).map((name) => (
-                  <Button
-                    key={name}
-                    variant="outline"
-                    onClick={() => setFloors([...floors, { id: uid(), name }])}
-                  >
-                    {name}
-                  </Button>
-                ))}
-                <Button
-                  onClick={() =>
-                    setFloors([...floors, { id: uid(), name: 'New Floor' }])
-                  }
-                >
-                  <Plus /> Add floor
-                </Button>
-              </div>
-            </div>
-          )}
-          {step === 3 && (
-            <div className="space-setup">
-              {floors.map((floor) => (
-                <section key={floor.id}>
-                  <h3>{floor.name}</h3>
-                  <div className="space-chips">
-                    {(spaces[floor.id] ?? []).map((name, index) => (
-                      <button
-                        key={`${name}-${index}`}
-                        onClick={() =>
-                          setSpaces({
-                            ...spaces,
-                            [floor.id]: (spaces[floor.id] ?? []).filter(
-                              (_, i) => i !== index,
-                            ),
-                          })
-                        }
-                      >
-                        {name}
-                        <X />
-                      </button>
-                    ))}
-                  </div>
+                    {['1 BHK', '2 BHK', '3 BHK', '4 BHK', '5 BHK', 'Other'].map(
+                      (x) => (
+                        <option key={x}>{x}</option>
+                      ),
+                    )}
+                  </select>
+                </label>
+                <label>
+                  Location
+                  <Input
+                    value={details.location}
+                    onChange={(e) =>
+                      setDetails({ ...details, location: e.target.value })
+                    }
+                  />
+                </label>
+                <label>
+                  Area (sq.ft)
+                  <Num
+                    value={details.carpetArea}
+                    onChange={(carpetArea) =>
+                      setDetails({ ...details, carpetArea })
+                    }
+                  />
+                </label>
+                <label>
+                  Default tier
                   <select
-                    defaultValue=""
-                    onChange={(e) => {
-                      addSpace(floor.id, e.target.value);
-                      e.target.value = '';
-                    }}
+                    value={details.defaultTier}
+                    onChange={(e) =>
+                      setDetails({
+                        ...details,
+                        defaultTier: e.target.value as Tier,
+                      })
+                    }
                   >
-                    <option value="">+ Add space…</option>
-                    {SPACE_SUGGESTIONS.map((name) => (
-                      <option key={name}>{name}</option>
+                    {s.settings.enabledTiers.map((t) => (
+                      <option value={t} key={t}>
+                        {tl(t)}
+                      </option>
                     ))}
                   </select>
-                  <Input
-                    placeholder="Custom space — press Enter"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        addSpace(floor.id, e.currentTarget.value);
-                        e.currentTarget.value = '';
-                      }
-                    }}
+                </label>
+                <label className="wide">
+                  Notes
+                  <textarea
+                    value={details.notes}
+                    onChange={(e) =>
+                      setDetails({ ...details, notes: e.target.value })
+                    }
                   />
-                </section>
-              ))}
-            </div>
-          )}
-          {step === 4 && (
-            <div className="setup-review">
-              <p>
-                <strong>{details.layout}</strong> is only a starting reference.
-                Bedrooms and all other spaces remain fully editable after
-                creation.
-              </p>
-              {floors.map((floor) => (
-                <section key={floor.id}>
-                  <h3>{floor.name}</h3>
+                </label>
+              </div>
+            )}
+            {step === 2 && (
+              <div className="floor-step-layout">
+                <div className="floor-card-list">
+                  {floors.map((floor, index) => (
+                    <article className="project-floor-card" key={floor.id}>
+                      <GripVertical className="floor-grip" aria-hidden="true" />
+                      <span className="project-floor-icon">
+                        {floorIcon(floor.name)}
+                      </span>
+                      <label>
+                        <span className="sr-only">Floor name</span>
+                        <Input
+                          value={floor.name}
+                          onChange={(e) =>
+                            setFloors(
+                              floors.map((x) =>
+                                x.id === floor.id
+                                  ? { ...x, name: e.target.value }
+                                  : x,
+                              ),
+                            )
+                          }
+                        />
+                        <small>
+                          {(spaces[floor.id] ?? []).length}{' '}
+                          {(spaces[floor.id] ?? []).length === 1
+                            ? 'space'
+                            : 'spaces'}
+                        </small>
+                      </label>
+                      <div className="project-floor-menu-wrap">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Actions for ${floor.name}`}
+                          aria-expanded={floorMenuId === floor.id}
+                          onClick={() =>
+                            setFloorMenuId(
+                              floorMenuId === floor.id ? '' : floor.id,
+                            )
+                          }
+                        >
+                          <MoreVertical />
+                        </Button>
+                        {floorMenuId === floor.id && (
+                          <div className="project-floor-menu">
+                            <Button
+                              variant="ghost"
+                              disabled={!index}
+                              onClick={() => {
+                                const next = [...floors];
+                                [next[index - 1], next[index]] = [
+                                  next[index],
+                                  next[index - 1],
+                                ];
+                                setFloors(next);
+                                setFloorMenuId('');
+                              }}
+                            >
+                              <ChevronUp /> Move up
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              disabled={index === floors.length - 1}
+                              onClick={() => {
+                                const next = [...floors];
+                                [next[index + 1], next[index]] = [
+                                  next[index],
+                                  next[index + 1],
+                                ];
+                                setFloors(next);
+                                setFloorMenuId('');
+                              }}
+                            >
+                              <ChevronDown /> Move down
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              disabled={floors.length === 1}
+                              onClick={() => {
+                                setFloors(
+                                  floors.filter((x) => x.id !== floor.id),
+                                );
+                                setFloorMenuId('');
+                              }}
+                            >
+                              <Trash2 /> Delete floor
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </article>
+                  ))}
+                  <aside className="project-tip">
+                    <Lightbulb />
+                    <p>
+                      <strong>Tip</strong>
+                      <span>
+                        Floors can be renamed, deleted and reordered at any
+                        time.
+                      </span>
+                    </p>
+                  </aside>
+                </div>
+                <aside className="add-floor-panel">
+                  <h3>
+                    <Plus /> Add floor
+                  </h3>
+                  <div>
+                    {FLOOR_SUGGESTIONS.filter(
+                      (name) => !floors.some((floor) => floor.name === name),
+                    ).map((name) => (
+                      <Button
+                        key={name}
+                        variant="outline"
+                        onClick={() =>
+                          setFloors([...floors, { id: uid(), name }])
+                        }
+                      >
+                        {floorIcon(name)} {name}
+                      </Button>
+                    ))}
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        setFloors([...floors, { id: uid(), name: 'New Floor' }])
+                      }
+                    >
+                      <Pencil /> Custom floor
+                    </Button>
+                  </div>
+                </aside>
+              </div>
+            )}
+            {step === 3 && (
+              <div className="space-setup refined-space-setup">
+                {floors.map((floor) => {
+                  const floorSpaces = spaces[floor.id] ?? [];
+                  const expanded = isFloorOpen(floor.id);
+                  return (
+                    <section
+                      className={expanded ? 'expanded' : ''}
+                      key={floor.id}
+                    >
+                      <button
+                        className="space-floor-heading"
+                        onClick={() => toggleFloor(floor.id)}
+                        aria-expanded={expanded}
+                      >
+                        <span className="project-floor-icon">
+                          {floorIcon(floor.name)}
+                        </span>
+                        <span>
+                          <strong>{floor.name}</strong>
+                          <small>
+                            {floorSpaces.length}{' '}
+                            {floorSpaces.length === 1 ? 'space' : 'spaces'}
+                          </small>
+                        </span>
+                        {expanded ? <ChevronUp /> : <ChevronDown />}
+                      </button>
+                      {expanded && (
+                        <div className="floor-space-body">
+                          {floorSpaces.map((name, index) => (
+                            <div
+                              className="compact-space-row"
+                              key={`${name}-${index}`}
+                            >
+                              <DoorOpen />
+                              <span>{name}</span>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label={`Remove ${name}`}
+                                onClick={() =>
+                                  setSpaces({
+                                    ...spaces,
+                                    [floor.id]: floorSpaces.filter(
+                                      (_, i) => i !== index,
+                                    ),
+                                  })
+                                }
+                              >
+                                <Trash2 />
+                              </Button>
+                            </div>
+                          ))}
+                          {addingSpaceFloorId === floor.id ? (
+                            <div className="space-add-controls">
+                              <select
+                                aria-label={`Choose a space for ${floor.name}`}
+                                defaultValue=""
+                                onChange={(e) => {
+                                  addSpace(floor.id, e.target.value);
+                                  e.target.value = '';
+                                }}
+                              >
+                                <option value="">Choose a common space…</option>
+                                {SPACE_SUGGESTIONS.map((name) => (
+                                  <option key={name}>{name}</option>
+                                ))}
+                              </select>
+                              <Input
+                                placeholder="Custom space — press Enter"
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    addSpace(floor.id, e.currentTarget.value);
+                                    e.currentTarget.value = '';
+                                  }
+                                  if (e.key === 'Escape')
+                                    setAddingSpaceFloorId('');
+                                }}
+                              />
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label="Close add space"
+                                onClick={() => setAddingSpaceFloorId('')}
+                              >
+                                <X />
+                              </Button>
+                            </div>
+                          ) : (
+                            <button
+                              className="add-space-compact"
+                              onClick={() => setAddingSpaceFloorId(floor.id)}
+                            >
+                              <Plus /> Add space to {floor.name}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </section>
+                  );
+                })}
+              </div>
+            )}
+            {step === 4 && (
+              <div className="setup-review refined-setup-review">
+                <aside className="layout-notice">
+                  <Info />
                   <p>
-                    {(spaces[floor.id] ?? []).join(' · ') || 'No spaces yet'}
+                    <strong>{details.layout}</strong> is only a starting
+                    reference. Bedrooms and all other spaces remain fully
+                    editable after creation.
                   </p>
-                </section>
-              ))}
-            </div>
-          )}
-          <div className="actions">
+                </aside>
+                <div className="review-floor-list">
+                  {floors.map((floor) => {
+                    const floorSpaces = spaces[floor.id] ?? [];
+                    return (
+                      <section key={floor.id}>
+                        <span className="project-floor-icon">
+                          {floorIcon(floor.name)}
+                        </span>
+                        <div>
+                          <h3>{floor.name}</h3>
+                          <p>
+                            {floorSpaces.length}{' '}
+                            {floorSpaces.length === 1 ? 'space' : 'spaces'}
+                            {floorSpaces.length
+                              ? `  ·  ${floorSpaces.join(', ')}`
+                              : '  ·  No spaces yet'}
+                          </p>
+                        </div>
+                        <ChevronRight aria-hidden="true" />
+                      </section>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="actions project-setup-actions">
             <Button
               variant="outline"
               onClick={step === 1 ? close : () => setStep(step - 1)}
@@ -814,10 +993,12 @@ function NewProject({ s }: { s: Store }) {
                   setStep(step + 1);
                 }}
               >
-                Continue
+                Continue <ArrowRight />
               </Button>
             ) : (
-              <Button onClick={create}>Create & open BOQ</Button>
+              <Button onClick={create}>
+                Create & open BOQ <ArrowRight />
+              </Button>
             )}
           </div>
         </Modal>
@@ -1653,9 +1834,10 @@ function Builder({ s }: { s: Store }) {
     return <div className="boot">Preparing your quotation workspace…</div>;
   if (!p) return <Navigate to="/projects" />;
   const projectFloors = p.floors ?? [],
-    visibleRooms = p.rooms.filter(
-      (space) => !selectedFloorId || space.floorId === selectedFloorId,
-    ),
+    activeFloorId = projectFloors.some((floor) => floor.id === selectedFloorId)
+      ? selectedFloorId
+      : (projectFloors[0]?.id ?? ''),
+    visibleRooms = p.rooms.filter((space) => space.floorId === activeFloorId),
     room = visibleRooms.find((r) => r.id === rid) ?? visibleRooms[0],
     update = (fn: (p: Project) => Project) =>
       s.setProjects(
@@ -1682,7 +1864,7 @@ function Builder({ s }: { s: Store }) {
     );
   const workTypeOptions = ['All', ...WORK_TYPES];
   const selectedFloor = projectFloors.find(
-    (floor) => floor.id === selectedFloorId,
+    (floor) => floor.id === activeFloorId,
   );
   const patchItem = (iid: string, x: Partial<QuoteItem>) =>
     update((q) => ({
@@ -1872,18 +2054,16 @@ function Builder({ s }: { s: Store }) {
             <select
               id="boq-floor"
               aria-label="Floor"
-              value={selectedFloorId}
+              value={activeFloorId}
               onChange={(event) => {
                 const floorId = event.target.value;
                 setSelectedFloorId(floorId);
                 setRid(
-                  p.rooms.find((space) => !floorId || space.floorId === floorId)
-                    ?.id ?? '',
+                  p.rooms.find((space) => space.floorId === floorId)?.id ?? '',
                 );
                 setMobileSpaceDetail(false);
               }}
             >
-              <option value="">All Floors</option>
               {projectFloors.map((floor) => (
                 <option value={floor.id} key={floor.id}>
                   {floor.name}
@@ -1906,7 +2086,7 @@ function Builder({ s }: { s: Store }) {
       >
         <header>
           <div>
-            <small>{selectedFloor?.name ?? 'All floors'}</small>
+            <small>{selectedFloor?.name ?? 'Select a floor'}</small>
             <h2>Spaces</h2>
           </div>
           <span>{selectedWorkType}</span>
@@ -2105,8 +2285,10 @@ function Builder({ s }: { s: Store }) {
                       <small>SELECTED ROOM</small>
                       <h2>{room.name}</h2>
                       <p>
-                        {selectedWorkType} ·{' '}
-                        {selectedFloor?.name ?? 'All floors'}
+                        {selectedWorkType === 'All'
+                          ? 'All Work Types'
+                          : selectedWorkType}{' '}
+                        · {selectedFloor?.name ?? 'Select a floor'}
                       </p>
                     </div>
                   </div>
@@ -2152,6 +2334,7 @@ function Builder({ s }: { s: Store }) {
                         key={item.id}
                         item={item}
                         p={p}
+                        showWorkType={selectedWorkType === 'All'}
                         currentRoomId={room.id}
                         editing={editingItemId === item.id}
                         setEditing={(value) =>
@@ -2277,7 +2460,7 @@ function Builder({ s }: { s: Store }) {
                   const r = {
                     id: uid(),
                     name,
-                    floorId: selectedFloorId || projectFloors[0]?.id,
+                    floorId: activeFloorId,
                     items: [],
                   };
                   update((q) => ({ ...q, rooms: [...q.rooms, r] }));
@@ -2296,7 +2479,7 @@ function Builder({ s }: { s: Store }) {
                 const r = {
                   id: uid(),
                   name: name.trim(),
-                  floorId: selectedFloorId || projectFloors[0]?.id,
+                  floorId: activeFloorId,
                   items: [],
                 };
                 update((q) => ({ ...q, rooms: [...q.rooms, r] }));
@@ -2740,6 +2923,7 @@ function itemMeasureLabel(item: QuoteItem) {
 function Item({
   item,
   p,
+  showWorkType,
   currentRoomId,
   editing,
   setEditing,
@@ -2751,6 +2935,7 @@ function Item({
 }: {
   item: QuoteItem;
   p: Project;
+  showWorkType: boolean;
   currentRoomId: string;
   editing: boolean;
   setEditing: (value: boolean) => void;
@@ -2793,6 +2978,9 @@ function Item({
           />
           <span className="item-copy">
             <strong>{item.name}</strong>
+            {showWorkType && (
+              <span className="item-work-type">{item.workType ?? 'Other'}</span>
+            )}
             <small>{item.description || 'No description'}</small>
             <span className="item-measure-summary">
               {itemMeasureLabel(item)}
