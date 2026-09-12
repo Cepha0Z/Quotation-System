@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   HashRouter,
   Navigate,
@@ -2457,7 +2458,15 @@ function Item({
   order: (d: number) => void;
 }) {
   const [more, setMore] = useState(false),
-    menuRef = useRef<HTMLDivElement>(null),
+    menuAnchorRef = useRef<HTMLDivElement>(null),
+    menuPanelRef = useRef<HTMLDivElement>(null),
+    [menuPosition, setMenuPosition] = useState<{
+      left: number;
+      width: number;
+      maxHeight: number;
+      top?: number;
+      bottom?: number;
+    } | null>(null),
     rate = itemBaseRate(item, p.defaultTier),
     referenceRate = itemReferenceRate(item, p.defaultTier),
     original =
@@ -2470,10 +2479,22 @@ function Item({
   useEffect(() => {
     if (!more) return;
     const close = (event: PointerEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) setMore(false);
+      const target = event.target as Node;
+      if (
+        !menuAnchorRef.current?.contains(target) &&
+        !menuPanelRef.current?.contains(target)
+      )
+        setMore(false);
     };
+    const closeForViewportChange = () => setMore(false);
     document.addEventListener('pointerdown', close);
-    return () => document.removeEventListener('pointerdown', close);
+    window.addEventListener('resize', closeForViewportChange);
+    window.addEventListener('scroll', closeForViewportChange, true);
+    return () => {
+      document.removeEventListener('pointerdown', close);
+      window.removeEventListener('resize', closeForViewportChange);
+      window.removeEventListener('scroll', closeForViewportChange, true);
+    };
   }, [more]);
   return (
     <article className={'item ' + (!item.enabled ? 'off' : '')}>
@@ -2516,92 +2537,138 @@ function Item({
         >
           {editing ? 'Done' : 'Edit'}
         </Button>
-        <div className="item-actions-wrap" ref={menuRef}>
+        <div className="item-actions-wrap" ref={menuAnchorRef}>
           <Button
             variant="ghost"
             size="icon-lg"
             onClick={(event) => {
               event.stopPropagation();
-              setMore(!more);
+              if (more) {
+                setMore(false);
+                return;
+              }
+
+              const anchor = event.currentTarget.getBoundingClientRect();
+              const margin = 12;
+              const gap = 7;
+              const compact = window.innerWidth <= 560;
+              const width = Math.min(244, window.innerWidth - margin * 2);
+
+              if (compact) {
+                setMenuPosition({
+                  left: margin,
+                  bottom: margin,
+                  width,
+                  maxHeight: window.innerHeight - margin * 2,
+                });
+              } else {
+                const spaceBelow =
+                  window.innerHeight - anchor.bottom - gap - margin;
+                const spaceAbove = anchor.top - gap - margin;
+                const opensUp = spaceBelow < 320 && spaceAbove > spaceBelow;
+                const availableSpace = opensUp ? spaceAbove : spaceBelow;
+
+                setMenuPosition({
+                  left: Math.min(
+                    Math.max(margin, anchor.right - width),
+                    window.innerWidth - margin - width,
+                  ),
+                  ...(opensUp
+                    ? { bottom: window.innerHeight - anchor.top + gap }
+                    : { top: anchor.bottom + gap }),
+                  width,
+                  maxHeight: Math.max(120, Math.min(360, availableSpace)),
+                });
+              }
+              setMore(true);
             }}
             aria-label={`Actions for ${item.name}`}
             aria-expanded={more}
           >
             <MoreHorizontal />
           </Button>
-          {more && (
-            <div className="context-menu item-context-menu" role="menu">
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  duplicate();
-                  setMore(false);
-                }}
+          {more &&
+            menuPosition &&
+            typeof document !== 'undefined' &&
+            createPortal(
+              <div
+                ref={menuPanelRef}
+                className="context-menu item-context-menu item-context-menu-portal"
+                role="menu"
+                style={menuPosition}
               >
-                <Copy /> Duplicate here
-              </Button>
-              <label>
-                Move to room
-                <select
-                  defaultValue=""
-                  onChange={(event) => {
-                    if (event.target.value) move(event.target.value);
-                    setMore(false);
-                  }}
-                >
-                  <option value="" disabled>
-                    Select room…
-                  </option>
-                  {p.rooms
-                    .filter((room) => room.id !== currentRoomId)
-                    .map((room) => (
-                      <option value={room.id} key={room.id}>
-                        {room.name}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  patch({ enabled: !item.enabled });
-                  setMore(false);
-                }}
-              >
-                {item.enabled ? 'Disable item' : 'Enable item'}
-              </Button>
-              <div className="menu-order">
                 <Button
                   variant="ghost"
                   onClick={() => {
-                    order(-1);
+                    duplicate();
                     setMore(false);
                   }}
                 >
-                  <ChevronUp /> Up
+                  <Copy /> Duplicate here
                 </Button>
+                <label>
+                  Move to room
+                  <select
+                    defaultValue=""
+                    onChange={(event) => {
+                      if (event.target.value) move(event.target.value);
+                      setMore(false);
+                    }}
+                  >
+                    <option value="" disabled>
+                      Select room…
+                    </option>
+                    {p.rooms
+                      .filter((room) => room.id !== currentRoomId)
+                      .map((room) => (
+                        <option value={room.id} key={room.id}>
+                          {room.name}
+                        </option>
+                      ))}
+                  </select>
+                </label>
                 <Button
                   variant="ghost"
                   onClick={() => {
-                    order(1);
+                    patch({ enabled: !item.enabled });
                     setMore(false);
                   }}
                 >
-                  <ChevronDown /> Down
+                  {item.enabled ? 'Disable item' : 'Enable item'}
                 </Button>
-              </div>
-              <span className="menu-separator" />
-              <Button
-                variant="destructive"
-                onClick={() => {
-                  remove();
-                  setMore(false);
-                }}
-              >
-                <Trash2 /> Delete item
-              </Button>
-            </div>
-          )}
+                <div className="menu-order">
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      order(-1);
+                      setMore(false);
+                    }}
+                  >
+                    <ChevronUp /> Up
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      order(1);
+                      setMore(false);
+                    }}
+                  >
+                    <ChevronDown /> Down
+                  </Button>
+                </div>
+                <span className="menu-separator" />
+                <Button
+                  variant="destructive"
+                  onClick={() => {
+                    remove();
+                    setMore(false);
+                  }}
+                >
+                  <Trash2 /> Delete item
+                </Button>
+              </div>,
+              document.body,
+            )}
         </div>
       </header>
       {editing && (

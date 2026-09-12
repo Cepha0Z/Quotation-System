@@ -1370,6 +1370,15 @@ td small {
 .item-context-menu {
   top: 45px;
 }
+.item-context-menu-portal {
+  position: fixed;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  z-index: 200;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
 @media (max-width: 800px) {
   .item > header {
     flex-wrap: wrap;
@@ -1397,6 +1406,10 @@ td small {
     top: auto;
     bottom: 12px;
     width: min(300px, calc(100vw - 24px));
+  }
+  .item-context-menu-portal {
+    right: auto;
+    bottom: auto;
   }
 }
 
