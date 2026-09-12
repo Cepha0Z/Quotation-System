@@ -2505,6 +2505,7 @@ function Item({
   order: (d: number) => void;
 }) {
   const [more, setMore] = useState(false),
+    [menuCompact, setMenuCompact] = useState(false),
     menuAnchorRef = useRef<HTMLDivElement>(null),
     menuPanelRef = useRef<HTMLDivElement>(null),
     [menuPosition, setMenuPosition] = useState<{
@@ -2525,6 +2526,9 @@ function Item({
     savings = itemSavings(item, p.defaultTier);
   useEffect(() => {
     if (!more) return;
+    const resetMenuScroll = window.requestAnimationFrame(() => {
+      menuPanelRef.current?.scrollTo({ top: 0 });
+    });
     const close = (event: PointerEvent) => {
       const target = event.target as Node;
       if (
@@ -2538,6 +2542,7 @@ function Item({
     window.addEventListener('resize', closeForViewportChange);
     window.addEventListener('scroll', closeForViewportChange, true);
     return () => {
+      window.cancelAnimationFrame(resetMenuScroll);
       document.removeEventListener('pointerdown', close);
       window.removeEventListener('resize', closeForViewportChange);
       window.removeEventListener('scroll', closeForViewportChange, true);
@@ -2600,6 +2605,7 @@ function Item({
               const gap = 7;
               const compact = window.innerWidth <= 560;
               const width = Math.min(244, window.innerWidth - margin * 2);
+              setMenuCompact(compact);
 
               if (compact) {
                 setMenuPosition({
@@ -2638,82 +2644,102 @@ function Item({
             menuPosition &&
             typeof document !== 'undefined' &&
             createPortal(
-              <div
-                ref={menuPanelRef}
-                className="context-menu item-context-menu item-context-menu-portal"
-                role="menu"
-                style={menuPosition}
-              >
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    duplicate();
-                    setMore(false);
-                  }}
+              <>
+                {menuCompact && (
+                  <button
+                    type="button"
+                    className="item-menu-scrim"
+                    aria-label="Close item actions"
+                    onClick={() => setMore(false)}
+                  />
+                )}
+                <div
+                  ref={menuPanelRef}
+                  className="context-menu item-context-menu item-context-menu-portal"
+                  role="menu"
+                  style={menuPosition}
                 >
-                  <Copy /> Duplicate here
-                </Button>
-                <label>
-                  Move to room
-                  <select
-                    defaultValue=""
-                    onChange={(event) => {
-                      if (event.target.value) move(event.target.value);
-                      setMore(false);
-                    }}
-                  >
-                    <option value="" disabled>
-                      Select room…
-                    </option>
-                    {p.rooms
-                      .filter((room) => room.id !== currentRoomId)
-                      .map((room) => (
-                        <option value={room.id} key={room.id}>
-                          {room.name}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    patch({ enabled: !item.enabled });
-                    setMore(false);
-                  }}
-                >
-                  {item.enabled ? 'Disable item' : 'Enable item'}
-                </Button>
-                <div className="menu-order">
+                  <div className="item-menu-heading">
+                    <strong>Item actions</strong>
+                    <button
+                      type="button"
+                      aria-label="Close item actions"
+                      onClick={() => setMore(false)}
+                    >
+                      <X />
+                    </button>
+                  </div>
                   <Button
                     variant="ghost"
                     onClick={() => {
-                      order(-1);
+                      duplicate();
                       setMore(false);
                     }}
                   >
-                    <ChevronUp /> Up
+                    <Copy /> Duplicate here
                   </Button>
+                  <label>
+                    Move to room
+                    <select
+                      defaultValue=""
+                      onChange={(event) => {
+                        if (event.target.value) move(event.target.value);
+                        setMore(false);
+                      }}
+                    >
+                      <option value="" disabled>
+                        Select room…
+                      </option>
+                      {p.rooms
+                        .filter((room) => room.id !== currentRoomId)
+                        .map((room) => (
+                          <option value={room.id} key={room.id}>
+                            {room.name}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
                   <Button
                     variant="ghost"
                     onClick={() => {
-                      order(1);
+                      patch({ enabled: !item.enabled });
                       setMore(false);
                     }}
                   >
-                    <ChevronDown /> Down
+                    {item.enabled ? 'Disable item' : 'Enable item'}
+                  </Button>
+                  <div className="menu-order">
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        order(-1);
+                        setMore(false);
+                      }}
+                    >
+                      <ChevronUp /> Up
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        order(1);
+                        setMore(false);
+                      }}
+                    >
+                      <ChevronDown /> Down
+                    </Button>
+                  </div>
+                  <span className="menu-separator" />
+                  <Button
+                    variant="destructive"
+                    onClick={() => {
+                      remove();
+                      setMore(false);
+                    }}
+                  >
+                    <Trash2 /> Delete item
                   </Button>
                 </div>
-                <span className="menu-separator" />
-                <Button
-                  variant="destructive"
-                  onClick={() => {
-                    remove();
-                    setMore(false);
-                  }}
-                >
-                  <Trash2 /> Delete item
-                </Button>
-              </div>,
+              </>,
               document.body,
             )}
         </div>
@@ -2737,7 +2763,7 @@ function Item({
               />
             </label>
           </div>
-          <div className="measure">
+          <div className="item-detail-grid">
             <label>
               Work type
               <select
@@ -2788,110 +2814,155 @@ function Item({
                 />
               </label>
             )}
-            <label>
-              Pricing
-              <select
-                value={item.pricingMode ?? 'unit'}
-                onChange={(e) =>
-                  patch({
-                    pricingMode: e.target.value as QuoteItem['pricingMode'],
-                  })
-                }
-              >
-                <option value="unit">Unit rate</option>
-                <option value="lump-sum">Lump sum</option>
-              </select>
-            </label>
-            <label>
-              Quantity
-              <Num
-                value={item.quantity}
-                onChange={(quantity) => patch({ quantity })}
-              />
-            </label>
-            <label>
-              Measurement basis
-              <select
-                value={item.measureMode ?? 'quantity'}
-                onChange={(e) =>
-                  patch({
-                    measureMode: e.target.value as QuoteItem['measureMode'],
-                  })
-                }
-              >
-                <option value="quantity">Entered quantity</option>
-                <option value="dimensions">Calculate from dimensions</option>
-              </select>
-            </label>
-            <label>
-              Dimension unit
-              <select
-                value={item.dimensionUnit ?? 'ft'}
-                onChange={(e) =>
-                  patch({
-                    dimensionUnit: e.target.value as QuoteItem['dimensionUnit'],
-                  })
-                }
-              >
-                {['mm', 'cm', 'ft', 'm'].map((unit) => (
-                  <option key={unit}>{unit}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Optional length
-              <Num
-                value={item.length}
-                onChange={(length) => patch({ length })}
-              />
-            </label>
-            <label>
-              Optional width / depth
-              <Num value={item.width} onChange={(width) => patch({ width })} />
-            </label>
-            <label>
-              Optional height
-              <Num
-                value={item.height}
-                onChange={(height) => patch({ height })}
-              />
-            </label>
-            <label>
-              Tier
-              <select
-                value={item.tierOverride ?? ''}
-                onChange={(e) =>
-                  patch({
-                    tierOverride: (e.target.value || undefined) as
-                      | Tier
-                      | undefined,
-                  })
-                }
-              >
-                <option value="">Project · {tl(p.defaultTier)}</option>
-                <option value="standard">Standard</option>
-                <option value="premium">Premium</option>
-                <option value="luxury">Luxury</option>
-              </select>
-            </label>
-            <label>
-              Project rate /{' '}
-              {item.customUnit || item.unit || item.measurementType}
-              <Num value={rate} onChange={(v) => patch({ rateOverride: v })} />
-            </label>
-            <label>
-              Discount
-              <Num
-                value={item.discount}
-                onChange={(v) => patch({ discount: v })}
-              />
-            </label>
-            <div className="formula">
-              {itemMeasure(item).toLocaleString('en-IN')}{' '}
-              {item.customUnit || item.unit || item.measurementType} ×{' '}
-              {inr(rate)}
-            </div>
           </div>
+          <section
+            className="pricing-editor"
+            aria-labelledby={`price-${item.id}`}
+          >
+            <header>
+              <div>
+                <strong id={`price-${item.id}`}>Price</strong>
+                <small>Choose how to calculate this item.</small>
+              </div>
+              <output>{inr(total)}</output>
+            </header>
+            <div className="pricing-grid">
+              <label>
+                Calculation
+                <select
+                  value={item.pricingMode ?? 'unit'}
+                  onChange={(e) =>
+                    patch({
+                      pricingMode: e.target.value as QuoteItem['pricingMode'],
+                    })
+                  }
+                >
+                  <option value="unit">Quantity × rate</option>
+                  <option value="lump-sum">Fixed amount</option>
+                </select>
+              </label>
+              {item.pricingMode !== 'lump-sum' && item.unit !== 'Lump Sum' && (
+                <>
+                  <label>
+                    Quantity source
+                    <select
+                      value={item.measureMode ?? 'quantity'}
+                      onChange={(e) =>
+                        patch({
+                          measureMode: e.target
+                            .value as QuoteItem['measureMode'],
+                        })
+                      }
+                    >
+                      <option value="quantity">Enter quantity</option>
+                      <option value="dimensions">Use dimensions</option>
+                    </select>
+                  </label>
+                  {item.measureMode !== 'dimensions' ? (
+                    <label>
+                      Quantity ({item.customUnit || item.unit})
+                      <Num
+                        value={item.quantity}
+                        onChange={(quantity) => patch({ quantity })}
+                      />
+                    </label>
+                  ) : (
+                    <>
+                      <label>
+                        Dimension unit
+                        <select
+                          value={item.dimensionUnit ?? 'ft'}
+                          onChange={(e) =>
+                            patch({
+                              dimensionUnit: e.target
+                                .value as QuoteItem['dimensionUnit'],
+                            })
+                          }
+                        >
+                          {['mm', 'cm', 'ft', 'm'].map((unit) => (
+                            <option key={unit}>{unit}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Length
+                        <Num
+                          value={item.length}
+                          onChange={(length) => patch({ length })}
+                        />
+                      </label>
+                      {(item.unit === 'Sq.ft' ||
+                        item.unit === 'Sq.m' ||
+                        item.measurementType === 'sqft') && (
+                        <label>
+                          Width / depth
+                          <Num
+                            value={item.width}
+                            onChange={(width) => patch({ width })}
+                          />
+                        </label>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
+              <label>
+                {item.pricingMode === 'lump-sum' || item.unit === 'Lump Sum'
+                  ? 'Fixed amount'
+                  : `Rate per ${item.customUnit || item.unit || item.measurementType}`}
+                <Num
+                  value={rate}
+                  onChange={(v) => patch({ rateOverride: v })}
+                />
+              </label>
+              <label>
+                Discount (optional)
+                <Num
+                  value={item.discount}
+                  onChange={(v) => patch({ discount: v })}
+                />
+              </label>
+              <div className="price-formula">
+                <span>
+                  {item.pricingMode === 'lump-sum' || item.unit === 'Lump Sum'
+                    ? 'Fixed amount'
+                    : `${itemMeasure(item).toLocaleString('en-IN')} ${item.customUnit || item.unit || item.measurementType} × ${inr(rate)}`}
+                  {item.discount > 0 ? ` − ${inr(item.discount)}` : ''}
+                </span>
+                <strong>{inr(total)}</strong>
+              </div>
+            </div>
+            <details className="advanced-pricing">
+              <summary>More pricing options</summary>
+              <div>
+                <label>
+                  Rate tier
+                  <select
+                    value={item.tierOverride ?? ''}
+                    onChange={(e) =>
+                      patch({
+                        tierOverride: (e.target.value || undefined) as
+                          | Tier
+                          | undefined,
+                      })
+                    }
+                  >
+                    <option value="">Project · {tl(p.defaultTier)}</option>
+                    <option value="standard">Standard</option>
+                    <option value="premium">Premium</option>
+                    <option value="luxury">Luxury</option>
+                  </select>
+                </label>
+                <label>
+                  Height (reference only)
+                  <Num
+                    value={item.height}
+                    onChange={(height) => patch({ height })}
+                  />
+                </label>
+              </div>
+            </details>
+          </section>
           <label className="item-notes">
             HSN code
             <Input
