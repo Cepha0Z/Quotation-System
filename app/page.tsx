@@ -2472,8 +2472,6 @@ function Num({
   );
 }
 function itemMeasureLabel(item: QuoteItem) {
-  if (item.pricingMode === 'lump-sum' || item.unit === 'Lump Sum')
-    return 'Lump sum';
   const quantity = itemMeasure(item).toLocaleString('en-IN', {
     maximumFractionDigits: 2,
   });
@@ -2523,7 +2521,13 @@ function Item({
         .filter((subUnit) => subUnit.enabled)
         .reduce((sum, subUnit) => sum + subUnit.rate, 0),
     total = itemTotal(item, p.defaultTier),
-    savings = itemSavings(item, p.defaultTier);
+    savings = itemSavings(item, p.defaultTier),
+    quantityKind =
+      item.measureMode === 'dimensions'
+        ? 'dimensions'
+        : item.unit === 'Nos'
+          ? 'nos'
+          : 'other';
   useEffect(() => {
     if (!more) return;
     const resetMenuScroll = window.requestAnimationFrame(() => {
@@ -2775,46 +2779,172 @@ function Item({
                 ))}
               </select>
             </label>
-            <label>
-              Unit
-              <select
-                value={item.unit ?? unitForMeasurement(item.measurementType)}
-                onChange={(e) => {
-                  const unit = e.target.value as BoqUnit;
-                  patch({
-                    unit,
-                    measurementType: measurementForUnit(unit),
-                    pricingMode: unit === 'Lump Sum' ? 'lump-sum' : 'unit',
-                  });
-                }}
-              >
-                {[
-                  'Nos',
-                  'Sq.ft',
-                  'Sq.m',
-                  'R.ft',
-                  'R.m',
-                  'Kg',
-                  'Ltr',
-                  'Set',
-                  'Lot',
-                  'Lump Sum',
-                  'Custom',
-                ].map((unit) => (
-                  <option key={unit}>{unit}</option>
-                ))}
-              </select>
-            </label>
-            {item.unit === 'Custom' && (
-              <label>
-                Custom unit
-                <Input
-                  value={item.customUnit ?? ''}
-                  onChange={(e) => patch({ customUnit: e.target.value })}
-                />
-              </label>
-            )}
           </div>
+          <section
+            className="quantity-editor"
+            aria-labelledby={`quantity-${item.id}`}
+          >
+            <header>
+              <div>
+                <strong id={`quantity-${item.id}`}>
+                  Quantity &amp; dimensions
+                </strong>
+                <small>
+                  This quantity is used everywhere, including Excel.
+                </small>
+              </div>
+              <output>{itemMeasureLabel(item)}</output>
+            </header>
+            <div className="quantity-grid">
+              <label>
+                Quantity type
+                <select
+                  value={quantityKind}
+                  onChange={(event) => {
+                    if (event.target.value === 'dimensions') {
+                      patch({
+                        measureMode: 'dimensions',
+                        unit: 'Sq.ft',
+                        measurementType: 'sqft',
+                      });
+                    } else if (event.target.value === 'nos') {
+                      patch({
+                        measureMode: 'quantity',
+                        unit: 'Nos',
+                        measurementType: 'quantity',
+                      });
+                    } else {
+                      patch({
+                        measureMode: 'quantity',
+                        unit: 'Custom',
+                        measurementType: 'quantity',
+                      });
+                    }
+                  }}
+                >
+                  <option value="dimensions">Dimensions</option>
+                  <option value="nos">Nos</option>
+                  <option value="other">Other unit</option>
+                </select>
+              </label>
+              {quantityKind === 'dimensions' ? (
+                <>
+                  <label>
+                    Result unit
+                    <select
+                      value={item.unit ?? 'Sq.ft'}
+                      onChange={(event) => {
+                        const unit = event.target.value as BoqUnit;
+                        patch({
+                          unit,
+                          measurementType: measurementForUnit(unit),
+                        });
+                      }}
+                    >
+                      <option>Sq.ft</option>
+                      <option>Sq.m</option>
+                      <option>R.ft</option>
+                      <option>R.m</option>
+                    </select>
+                  </label>
+                  <label>
+                    Dimension unit
+                    <select
+                      value={item.dimensionUnit ?? 'ft'}
+                      onChange={(event) =>
+                        patch({
+                          dimensionUnit: event.target
+                            .value as QuoteItem['dimensionUnit'],
+                        })
+                      }
+                    >
+                      {['mm', 'cm', 'ft', 'm'].map((unit) => (
+                        <option key={unit}>{unit}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Length
+                    <Num
+                      value={item.length}
+                      onChange={(length) => patch({ length })}
+                    />
+                  </label>
+                  {(item.unit === 'Sq.ft' ||
+                    item.unit === 'Sq.m' ||
+                    item.measurementType === 'sqft') && (
+                    <label>
+                      Height
+                      <Num
+                        value={item.width}
+                        onChange={(width) => patch({ width })}
+                      />
+                    </label>
+                  )}
+                  <div className="calculated-quantity">
+                    <span>Calculated quantity</span>
+                    <strong>{itemMeasureLabel(item)}</strong>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {quantityKind === 'other' && (
+                    <>
+                      <label>
+                        Unit
+                        <select
+                          value={
+                            item.unit ??
+                            unitForMeasurement(item.measurementType)
+                          }
+                          onChange={(event) => {
+                            const unit = event.target.value as BoqUnit;
+                            patch({
+                              unit,
+                              measurementType: measurementForUnit(unit),
+                            });
+                          }}
+                        >
+                          {[
+                            'Sq.ft',
+                            'Sq.m',
+                            'R.ft',
+                            'R.m',
+                            'Kg',
+                            'Ltr',
+                            'Set',
+                            'Lot',
+                            'Lump Sum',
+                            'Custom',
+                          ].map((unit) => (
+                            <option key={unit}>{unit}</option>
+                          ))}
+                        </select>
+                      </label>
+                      {item.unit === 'Custom' && (
+                        <label>
+                          Custom unit
+                          <Input
+                            value={item.customUnit ?? ''}
+                            onChange={(event) =>
+                              patch({ customUnit: event.target.value })
+                            }
+                          />
+                        </label>
+                      )}
+                    </>
+                  )}
+                  <label>
+                    Quantity
+                    <Num
+                      value={item.quantity}
+                      onChange={(quantity) => patch({ quantity })}
+                    />
+                  </label>
+                </>
+              )}
+            </div>
+          </section>
           <section
             className="pricing-editor"
             aria-labelledby={`price-${item.id}`}
@@ -2822,7 +2952,7 @@ function Item({
             <header>
               <div>
                 <strong id={`price-${item.id}`}>Price</strong>
-                <small>Choose how to calculate this item.</small>
+                <small>Set the rate or enter one fixed amount.</small>
               </div>
               <output>{inr(total)}</output>
             </header>
@@ -2841,71 +2971,6 @@ function Item({
                   <option value="lump-sum">Fixed amount</option>
                 </select>
               </label>
-              {item.pricingMode !== 'lump-sum' && item.unit !== 'Lump Sum' && (
-                <>
-                  <label>
-                    Quantity source
-                    <select
-                      value={item.measureMode ?? 'quantity'}
-                      onChange={(e) =>
-                        patch({
-                          measureMode: e.target
-                            .value as QuoteItem['measureMode'],
-                        })
-                      }
-                    >
-                      <option value="quantity">Enter quantity</option>
-                      <option value="dimensions">Use dimensions</option>
-                    </select>
-                  </label>
-                  {item.measureMode !== 'dimensions' ? (
-                    <label>
-                      Quantity ({item.customUnit || item.unit})
-                      <Num
-                        value={item.quantity}
-                        onChange={(quantity) => patch({ quantity })}
-                      />
-                    </label>
-                  ) : (
-                    <>
-                      <label>
-                        Dimension unit
-                        <select
-                          value={item.dimensionUnit ?? 'ft'}
-                          onChange={(e) =>
-                            patch({
-                              dimensionUnit: e.target
-                                .value as QuoteItem['dimensionUnit'],
-                            })
-                          }
-                        >
-                          {['mm', 'cm', 'ft', 'm'].map((unit) => (
-                            <option key={unit}>{unit}</option>
-                          ))}
-                        </select>
-                      </label>
-                      <label>
-                        Length
-                        <Num
-                          value={item.length}
-                          onChange={(length) => patch({ length })}
-                        />
-                      </label>
-                      {(item.unit === 'Sq.ft' ||
-                        item.unit === 'Sq.m' ||
-                        item.measurementType === 'sqft') && (
-                        <label>
-                          Width / depth
-                          <Num
-                            value={item.width}
-                            onChange={(width) => patch({ width })}
-                          />
-                        </label>
-                      )}
-                    </>
-                  )}
-                </>
-              )}
               <label>
                 {item.pricingMode === 'lump-sum' || item.unit === 'Lump Sum'
                   ? 'Fixed amount'
@@ -2952,13 +3017,6 @@ function Item({
                     <option value="premium">Premium</option>
                     <option value="luxury">Luxury</option>
                   </select>
-                </label>
-                <label>
-                  Height (reference only)
-                  <Num
-                    value={item.height}
-                    onChange={(height) => patch({ height })}
-                  />
                 </label>
               </div>
             </details>

@@ -106,7 +106,7 @@ const project: Project = {
           pricingMode: 'lump-sum',
           measurementType: 'flat',
           unit: 'Lump Sum',
-          quantity: 1,
+          quantity: 3,
           rateOverride: 18_750,
         }),
         makeItem('components', 'Media console', 'Millwork', {
@@ -243,6 +243,21 @@ async function main() {
   );
   if (longItemRow < 0)
     throw new Error('Long Particulars sample row is missing.');
+  if (!String(civilRows[longItemRow][1]).includes('12.75L × 9.5H ft')) {
+    throw new Error(
+      'The exported dimensions do not match the authoritative editor fields.',
+    );
+  }
+  const fixedAmountRow = civilRows.find(
+    (row) =>
+      typeof row[1] === 'string' &&
+      row[1].startsWith('Site protection package'),
+  );
+  if (fixedAmountRow?.[3] !== 3 || fixedAmountRow?.[4] !== 'Lump Sum') {
+    throw new Error(
+      'Fixed-amount items must retain their entered quantity in Excel.',
+    );
+  }
   const civilSheet = workbook.Sheets['Civil Work'];
   if ((civilSheet['!rows']?.[longItemRow]?.hpt ?? 0) < 60) {
     throw new Error(

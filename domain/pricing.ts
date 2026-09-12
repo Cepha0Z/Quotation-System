@@ -35,7 +35,6 @@ const dimensionInMetres = (value: unknown, unit = 'ft') => {
 const dimensionInFeet = (value: unknown, unit = 'ft') =>
   dimensionInMetres(value, unit) / 0.3048;
 export const itemMeasure = (item: QuoteItem) => {
-  if (item.pricingMode === 'lump-sum' || item.unit === 'Lump Sum') return 1;
   if (item.measureMode !== 'dimensions') return safe(item.quantity);
   const dimensionUnit = item.dimensionUnit ?? 'ft';
   if (item.unit === 'Sq.ft')
@@ -62,7 +61,8 @@ export const itemOriginalTotal = (
   forcedTier?: Tier,
 ) =>
   item.enabled
-    ? itemMeasure(item) * safe(itemBaseRate(item, projectTier, forcedTier)) +
+    ? (item.pricingMode === 'lump-sum' ? 1 : itemMeasure(item)) *
+        safe(itemBaseRate(item, projectTier, forcedTier)) +
       item.subUnits
         .filter((s) => s.enabled)
         .reduce((a, s) => a + safe(s.rate), 0)
@@ -87,7 +87,7 @@ export const itemSavings = (
       0,
       itemReferenceRate(item, projectTier, forcedTier) -
         itemBaseRate(item, projectTier, forcedTier),
-    ) * itemMeasure(item);
+    ) * (item.pricingMode === 'lump-sum' ? 1 : itemMeasure(item));
   return (
     rateSaving +
     Math.min(

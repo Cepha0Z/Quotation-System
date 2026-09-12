@@ -3418,11 +3418,12 @@ body {
 /* Clear item pricing flow and viewport-safe phone actions */
 .item-detail-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(140px, 1fr));
+  grid-template-columns: minmax(200px, 1fr);
   gap: 12px;
   padding: 14px 16px;
 }
 .item-detail-grid label,
+.quantity-grid label,
 .pricing-grid label,
 .advanced-pricing label {
   display: grid;
@@ -3433,6 +3434,8 @@ body {
 }
 .item-detail-grid input,
 .item-detail-grid select,
+.quantity-grid input,
+.quantity-grid select,
 .pricing-grid input,
 .pricing-grid select,
 .advanced-pricing input,
@@ -3440,6 +3443,7 @@ body {
   height: 44px;
   background: #fff;
 }
+.quantity-editor,
 .pricing-editor {
   margin: 0 16px 14px;
   overflow: hidden;
@@ -3447,6 +3451,7 @@ body {
   border-radius: 11px;
   background: #fff;
 }
+.quantity-editor > header,
 .pricing-editor > header {
   min-height: 64px;
   padding: 11px 14px;
@@ -3457,18 +3462,22 @@ body {
   justify-content: space-between;
   gap: 16px;
 }
+.quantity-editor > header > div,
 .pricing-editor > header > div {
   display: grid;
   gap: 2px;
 }
+.quantity-editor > header strong,
 .pricing-editor > header strong {
   color: #15382f;
   font-size: 16px;
 }
+.quantity-editor > header small,
 .pricing-editor > header small {
   color: #6c7872;
   font-size: 12px;
 }
+.quantity-editor > header output,
 .pricing-editor > header output {
   color: #103c34;
   font:
@@ -3476,12 +3485,31 @@ body {
     serif;
   white-space: nowrap;
 }
+.quantity-grid,
 .pricing-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(140px, 1fr));
   gap: 12px;
   padding: 14px;
   align-items: end;
+}
+.calculated-quantity {
+  min-height: 44px;
+  padding: 7px 11px;
+  border: 1px solid #dfe5e1;
+  border-radius: 8px;
+  background: #f8faf8;
+  display: grid;
+  align-content: center;
+  gap: 2px;
+}
+.calculated-quantity span {
+  color: #6c7872;
+  font-size: 11px;
+}
+.calculated-quantity strong {
+  color: #15382f;
+  font-size: 14px;
 }
 .price-formula {
   grid-column: 1 / -1;
@@ -3527,6 +3555,7 @@ body {
 
 @media (max-width: 800px) {
   .item-detail-grid,
+  .quantity-grid,
   .pricing-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -3534,6 +3563,7 @@ body {
 
 @media (max-width: 560px) {
   .item-detail-grid,
+  .quantity-grid,
   .pricing-grid,
   .advanced-pricing > div {
     grid-template-columns: minmax(0, 1fr);
@@ -3541,15 +3571,19 @@ body {
   .item-detail-grid {
     padding: 14px 12px;
   }
+  .quantity-editor,
   .pricing-editor {
     margin: 0 12px 12px;
   }
+  .quantity-editor > header,
   .pricing-editor > header {
     padding: 11px 12px;
   }
+  .quantity-editor > header output,
   .pricing-editor > header output {
     font-size: 19px;
   }
+  .quantity-grid,
   .pricing-grid {
     padding: 12px;
   }

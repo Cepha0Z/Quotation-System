@@ -360,9 +360,7 @@ function applyDocumentHeader(
   };
   for (const row of [3, 4, 5]) {
     styleRow(X, ws, row, (column) => ({
-      fill: fill(
-        column === 0 || column === 4 ? c.greenPale : c.surfaceStrong,
-      ),
+      fill: fill(column === 0 || column === 4 ? c.greenPale : c.surfaceStrong),
       font:
         column === 0 || column === 4
           ? font(9, { bold: true, color: c.greenDark })
@@ -1066,11 +1064,15 @@ export async function createProjectExcelFile(
         for (const item of items) {
           const dimensions =
             item.measureMode === 'dimensions'
-              ? [
-                  item.length ? `${item.length}L` : '',
-                  item.width ? `${item.width}D` : '',
-                  item.height ? `${item.height}H` : '',
-                ]
+              ? (item.unit === 'Sq.ft' ||
+                item.unit === 'Sq.m' ||
+                item.measurementType === 'sqft'
+                  ? [
+                      item.length ? `${item.length}L` : '',
+                      item.width ? `${item.width}H` : '',
+                    ]
+                  : [item.length ? `${item.length}L` : '']
+                )
                   .filter(Boolean)
                   .join(' × ')
               : '';
@@ -1097,7 +1099,7 @@ export async function createProjectExcelFile(
             serial,
             particulars,
             item.hsnCode ?? '',
-            item.pricingMode === 'lump-sum' ? 1 : itemMeasure(item),
+            itemMeasure(item),
             item.customUnit ||
               item.unit ||
               unitForMeasurement(item.measurementType),
