@@ -1,5 +1,5 @@
 import type { Revision } from '../domain/types';
-import { indexedDbStorage, type StorageAdapter } from './db';
+import { sharedWorkspaceStorage, type StorageAdapter } from './db';
 
 const KEY = 'revisions';
 
@@ -15,4 +15,6 @@ export const createRevisionRepository = (storage: StorageAdapter) => ({
   },
 });
 
-export const revisionRepository = createRevisionRepository(indexedDbStorage);
+export const revisionRepository = createRevisionRepository(
+  sharedWorkspaceStorage,
+);

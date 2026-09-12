@@ -1,5 +1,5 @@
 import type { Project } from '../domain/types';
-import { indexedDbStorage, type StorageAdapter } from './db';
+import { sharedWorkspaceStorage, type StorageAdapter } from './db';
 
 const KEY = 'projects';
 
@@ -30,4 +30,6 @@ export const createProjectRepository = (storage: StorageAdapter) => ({
   },
 });
 
-export const projectRepository = createProjectRepository(indexedDbStorage);
+export const projectRepository = createProjectRepository(
+  sharedWorkspaceStorage,
+);

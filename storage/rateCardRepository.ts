@@ -1,5 +1,5 @@
 import type { RateCardItem } from '../domain/types';
-import { indexedDbStorage, type StorageAdapter } from './db';
+import { sharedWorkspaceStorage, type StorageAdapter } from './db';
 
 const KEY = 'rate-card';
 
@@ -8,4 +8,6 @@ export const createRateCardRepository = (storage: StorageAdapter) => ({
   saveAll: (items: RateCardItem[]) => storage.set(KEY, items),
 });
 
-export const rateCardRepository = createRateCardRepository(indexedDbStorage);
+export const rateCardRepository = createRateCardRepository(
+  sharedWorkspaceStorage,
+);

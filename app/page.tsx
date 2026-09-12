@@ -162,7 +162,8 @@ function useStore(): Store {
     [saveState, setSaveState] = useState<Store['saveState']>('loading'),
     [storageError, setStorageError] = useState<string | null>(null),
     timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({}),
-    pendingWrites = useRef<Record<string, () => Promise<void>>>({});
+    pendingWrites = useRef<Record<string, () => Promise<void>>>({}),
+    inFlightWrites = useRef(0);
 
   const flushWrite = async (key: string) => {
     const write = pendingWrites.current[key];
@@ -170,14 +171,17 @@ function useStore(): Store {
     delete pendingWrites.current[key];
     clearTimeout(timers.current[key]);
     delete timers.current[key];
+    inFlightWrites.current += 1;
     try {
       await write();
       if (!Object.keys(pendingWrites.current).length) setSaveState('saved');
     } catch {
       setSaveState('error');
       setStorageError(
-        'Changes are available for this session, but could not be saved on this device.',
+        'Changes are cached on this device, but could not be synced to the shared workspace.',
       );
+    } finally {
+      inFlightWrites.current -= 1;
     }
   };
 
@@ -217,10 +221,13 @@ function useStore(): Store {
         const seedWrites: Promise<void>[] = [];
         if (JSON.stringify(savedProjects) !== JSON.stringify(initialProjects))
           seedWrites.push(projectRepository.saveAll(initialProjects));
-        if (JSON.stringify(savedRates) !== JSON.stringify(initialRates))
+        if (
+          savedRates.length &&
+          JSON.stringify(savedRates) !== JSON.stringify(initialRates)
+        )
           seedWrites.push(rateCardRepository.saveAll(initialRates));
         if (
-          !savedSettings ||
+          savedSettings &&
           JSON.stringify(savedSettings) !== JSON.stringify(initialSettings)
         )
           seedWrites.push(settingsRepository.save(initialSettings));
@@ -245,17 +252,57 @@ function useStore(): Store {
         if (active) setReady(true);
       }
     })();
+    const refreshSharedWorkspace = async () => {
+      if (
+        !active ||
+        document.visibilityState !== 'visible' ||
+        inFlightWrites.current > 0 ||
+        Object.keys(pendingWrites.current).length
+      )
+        return;
+      try {
+        const [sharedProjects, sharedRates, sharedSettings, sharedRevisions] =
+          await Promise.all([
+            projectRepository.list(),
+            rateCardRepository.list(),
+            settingsRepository.get(),
+            revisionRepository.list(),
+          ]);
+        if (!active) return;
+        sp(sharedProjects.map(normalizeProject));
+        sr(sharedRates.length ? sharedRates : dr);
+        ss(normalizeFirmSettings(sharedSettings));
+        sv(sharedRevisions);
+        setSaveState('saved');
+        setStorageError(null);
+      } catch {
+        if (active) {
+          setSaveState('error');
+          setStorageError(
+            'The shared workspace could not be refreshed. Your cached copy remains available.',
+          );
+        }
+      }
+    };
     const flushPending = () => {
       if (document.visibilityState === 'hidden')
         Object.keys(pendingWrites.current).forEach(
           (key) => void flushWrite(key),
         );
+      else void refreshSharedWorkspace();
     };
+    const refreshTimer = window.setInterval(
+      () => void refreshSharedWorkspace(),
+      15_000,
+    );
     document.addEventListener('visibilitychange', flushPending);
+    window.addEventListener('focus', refreshSharedWorkspace);
     window.addEventListener('pagehide', flushPending);
     return () => {
       active = false;
+      window.clearInterval(refreshTimer);
       document.removeEventListener('visibilitychange', flushPending);
+      window.removeEventListener('focus', refreshSharedWorkspace);
       window.removeEventListener('pagehide', flushPending);
     };
   }, []);
@@ -279,7 +326,7 @@ function useStore(): Store {
       } catch {
         setSaveState('error');
         setStorageError(
-          'The project was removed here, but could not be deleted from this device.',
+          'The project was removed here, but could not be deleted from the shared workspace.',
         );
       }
     },
@@ -304,7 +351,7 @@ function useStore(): Store {
       } catch {
         setSaveState('error');
         setStorageError(
-          'The room was removed here, but could not be deleted from this device.',
+          'The room was removed here, but could not be deleted from the shared workspace.',
         );
       }
     },
@@ -377,7 +424,7 @@ function Shell({ s }: { s: Store }) {
           <b>ND</b>
           <span>
             <strong>Nebulous Design</strong>
-            <small>Local workspace</small>
+            <small>Shared workspace</small>
           </span>
         </div>
       </aside>
@@ -393,12 +440,12 @@ function Shell({ s }: { s: Store }) {
           <span className={`saved ${s.saveState}`}>
             ●{' '}
             {s.saveState === 'loading'
-              ? 'Loading local data'
+              ? 'Loading shared data'
               : s.saveState === 'saving'
                 ? 'Saving…'
                 : s.saveState === 'error'
                   ? 'Saving unavailable'
-                  : 'Saved locally'}
+                  : 'Saved for everyone'}
           </span>
         </header>
         {s.storageError && (
@@ -2888,7 +2935,7 @@ function Item({
             </p>
           )}
           <div className="editor-actions">
-            <span>Changes are saved locally as you edit.</span>
+            <span>Changes are shared with everyone using this site.</span>
             <Button onClick={() => setEditing(false)}>Done editing</Button>
           </div>
         </div>

@@ -1,5 +1,5 @@
 import type { FirmSettings } from '../domain/types';
-import { indexedDbStorage, type StorageAdapter } from './db';
+import { sharedWorkspaceStorage, type StorageAdapter } from './db';
 
 const KEY = 'firm-settings';
 
@@ -8,4 +8,6 @@ export const createSettingsRepository = (storage: StorageAdapter) => ({
   save: (settings: FirmSettings) => storage.set(KEY, settings),
 });
 
-export const settingsRepository = createSettingsRepository(indexedDbStorage);
+export const settingsRepository = createSettingsRepository(
+  sharedWorkspaceStorage,
+);
