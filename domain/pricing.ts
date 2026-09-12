@@ -10,8 +10,8 @@ export const inr = (value: number) =>
     currency: 'INR',
     maximumFractionDigits: 0,
   }).format(safeCurrency(value));
-export const effectiveTier = (item: QuoteItem, projectTier: Tier) =>
-  item.tierOverride ?? projectTier;
+export const effectiveTier = (_item: QuoteItem, projectTier: Tier) =>
+  projectTier;
 export const itemReferenceRate = (
   item: QuoteItem,
   projectTier: Tier,
@@ -61,8 +61,7 @@ export const itemOriginalTotal = (
   forcedTier?: Tier,
 ) =>
   item.enabled
-    ? (item.pricingMode === 'lump-sum' ? 1 : itemMeasure(item)) *
-        safe(itemBaseRate(item, projectTier, forcedTier)) +
+    ? itemMeasure(item) * safe(itemBaseRate(item, projectTier, forcedTier)) +
       item.subUnits
         .filter((s) => s.enabled)
         .reduce((a, s) => a + safe(s.rate), 0)
@@ -87,7 +86,7 @@ export const itemSavings = (
       0,
       itemReferenceRate(item, projectTier, forcedTier) -
         itemBaseRate(item, projectTier, forcedTier),
-    ) * (item.pricingMode === 'lump-sum' ? 1 : itemMeasure(item));
+    ) * itemMeasure(item);
   return (
     rateSaving +
     Math.min(

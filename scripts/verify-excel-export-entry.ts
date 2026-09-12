@@ -253,9 +253,13 @@ async function main() {
       typeof row[1] === 'string' &&
       row[1].startsWith('Site protection package'),
   );
-  if (fixedAmountRow?.[3] !== 3 || fixedAmountRow?.[4] !== 'Lump Sum') {
+  if (
+    fixedAmountRow?.[3] !== 3 ||
+    fixedAmountRow?.[4] !== 'Lump Sum' ||
+    fixedAmountRow?.[6] !== 56_250
+  ) {
     throw new Error(
-      'Fixed-amount items must retain their entered quantity in Excel.',
+      'Fixed-amount items must multiply by and export their entered quantity.',
     );
   }
   const civilSheet = workbook.Sheets['Civil Work'];

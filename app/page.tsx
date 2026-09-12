@@ -2952,7 +2952,7 @@ function Item({
             <header>
               <div>
                 <strong id={`price-${item.id}`}>Price</strong>
-                <small>Set the rate or enter one fixed amount.</small>
+                <small>Set the price for each recorded unit.</small>
               </div>
               <output>{inr(total)}</output>
             </header>
@@ -2968,30 +2968,25 @@ function Item({
                   }
                 >
                   <option value="unit">Quantity × rate</option>
-                  <option value="lump-sum">Fixed amount</option>
+                  <option value="lump-sum">Fixed amount per unit</option>
                 </select>
               </label>
               <label>
-                {item.pricingMode === 'lump-sum' || item.unit === 'Lump Sum'
-                  ? 'Fixed amount'
+                {item.pricingMode === 'lump-sum'
+                  ? item.unit === 'Lump Sum'
+                    ? 'Lump-sum price'
+                    : `Fixed price per ${item.customUnit || item.unit || item.measurementType}`
                   : `Rate per ${item.customUnit || item.unit || item.measurementType}`}
                 <Num
                   value={rate}
                   onChange={(v) => patch({ rateOverride: v })}
                 />
               </label>
-              <label>
-                Discount (optional)
-                <Num
-                  value={item.discount}
-                  onChange={(v) => patch({ discount: v })}
-                />
-              </label>
               <div className="price-formula">
                 <span>
-                  {item.pricingMode === 'lump-sum' || item.unit === 'Lump Sum'
-                    ? 'Fixed amount'
-                    : `${itemMeasure(item).toLocaleString('en-IN')} ${item.customUnit || item.unit || item.measurementType} × ${inr(rate)}`}
+                  {itemMeasure(item).toLocaleString('en-IN')}{' '}
+                  {item.customUnit || item.unit || item.measurementType} ×{' '}
+                  {inr(rate)}
                   {item.discount > 0 ? ` − ${inr(item.discount)}` : ''}
                 </span>
                 <strong>{inr(total)}</strong>
@@ -3001,22 +2996,11 @@ function Item({
               <summary>More pricing options</summary>
               <div>
                 <label>
-                  Rate tier
-                  <select
-                    value={item.tierOverride ?? ''}
-                    onChange={(e) =>
-                      patch({
-                        tierOverride: (e.target.value || undefined) as
-                          | Tier
-                          | undefined,
-                      })
-                    }
-                  >
-                    <option value="">Project · {tl(p.defaultTier)}</option>
-                    <option value="standard">Standard</option>
-                    <option value="premium">Premium</option>
-                    <option value="luxury">Luxury</option>
-                  </select>
+                  Discount
+                  <Num
+                    value={item.discount}
+                    onChange={(discount) => patch({ discount })}
+                  />
                 </label>
               </div>
             </details>
@@ -3058,7 +3042,7 @@ function Item({
                 </span>
               </div>
             )}
-          {(item.rateOverride !== undefined || item.tierOverride) && (
+          {item.rateOverride !== undefined && (
             <p className="override">
               Project-specific override · global rate card unchanged
             </p>
