@@ -2023,6 +2023,9 @@ select,
   color: #31463d;
   font-size: 12px;
 }
+.rate-saving.savings-only {
+  grid-template-columns: 1fr;
+}
 .summary > header > span {
   color: #a9bbb4;
   font-size: 10px;

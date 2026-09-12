@@ -60,10 +60,42 @@ export const SPACE_SUGGESTIONS = [
   'Terrace',
 ];
 
+export const BOQ_UNITS: BoqUnit[] = [
+  'Nos',
+  'Sq.ft',
+  'Sq.m',
+  'Sq.yd',
+  'Sq.in',
+  'R.ft',
+  'R.m',
+  'R.in',
+  'Cu.ft',
+  'Cu.m',
+  'mm',
+  'cm',
+  'in',
+  'ft',
+  'm',
+  'Kg',
+  'g',
+  'Tonne',
+  'Ltr',
+  'ml',
+  'Set',
+  'Pair',
+  'Point',
+  'Day',
+  'Hour',
+  'Lot',
+  'Job',
+  'Lump Sum',
+  'Custom',
+];
+
 export const measurementForUnit = (unit: BoqUnit): MeasurementType =>
-  unit === 'Sq.ft'
+  unit === 'Sq.ft' || unit === 'Sq.m'
     ? 'sqft'
-    : unit === 'R.ft'
+    : unit === 'R.ft' || unit === 'R.m'
       ? 'rft'
       : unit === 'Lump Sum'
         ? 'flat'

@@ -92,6 +92,10 @@ const project: Project = {
         makeItem('zero', 'Client-supplied pendant', 'Bought Out', {
           description:
             'Installation allowance for client-supplied decorative pendant.',
+          measurementType: 'sqft',
+          measureMode: 'quantity',
+          unit: 'Sq.ft',
+          quantity: 14.47,
           rates: { standard: 0, premium: 0, luxury: 0 },
           hsnCode: '',
         }),
@@ -260,6 +264,20 @@ async function main() {
   ) {
     throw new Error(
       'Fixed-amount items must multiply by and export their entered quantity.',
+    );
+  }
+  const boughtOutRows = X.utils.sheet_to_json<unknown[]>(
+    workbook.Sheets['Bought Out'],
+    { header: 1, raw: true },
+  );
+  const manualAreaRow = boughtOutRows.find(
+    (row) =>
+      typeof row[1] === 'string' &&
+      row[1].startsWith('Client-supplied pendant'),
+  );
+  if (manualAreaRow?.[3] !== 14.47 || manualAreaRow?.[4] !== 'Sq.ft') {
+    throw new Error(
+      'Directly entered total area must be the quantity exported to Excel.',
     );
   }
   const civilSheet = workbook.Sheets['Civil Work'];

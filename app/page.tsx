@@ -60,13 +60,13 @@ import {
   inr,
   itemBaseRate,
   itemMeasure,
-  itemReferenceRate,
   itemSavings,
   itemTotal,
   quoteTotals,
   roomTotal,
 } from '@/domain/pricing';
 import {
+  BOQ_UNITS,
   FLOOR_SUGGESTIONS,
   SPACE_SUGGESTIONS,
   WORK_TYPES,
@@ -2466,6 +2466,7 @@ function Num({
     <Input
       type="number"
       min="0"
+      step="any"
       value={value}
       onChange={(e) => onChange(Number(e.target.value) || 0)}
     />
@@ -2473,7 +2474,7 @@ function Num({
 }
 function itemMeasureLabel(item: QuoteItem) {
   const quantity = itemMeasure(item).toLocaleString('en-IN', {
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 3,
   });
   return `${quantity} ${item.customUnit || item.unit || unitForMeasurement(item.measurementType)}`;
 }
@@ -2514,20 +2515,19 @@ function Item({
       bottom?: number;
     } | null>(null),
     rate = itemBaseRate(item, p.defaultTier),
-    referenceRate = itemReferenceRate(item, p.defaultTier),
-    original =
-      itemMeasure(item) * referenceRate +
-      item.subUnits
-        .filter((subUnit) => subUnit.enabled)
-        .reduce((sum, subUnit) => sum + subUnit.rate, 0),
     total = itemTotal(item, p.defaultTier),
     savings = itemSavings(item, p.defaultTier),
     quantityKind =
       item.measureMode === 'dimensions'
         ? 'dimensions'
-        : item.unit === 'Nos'
-          ? 'nos'
-          : 'other';
+        : item.unit === 'Sq.ft' ||
+            item.unit === 'Sq.m' ||
+            item.unit === 'Sq.yd' ||
+            item.unit === 'Sq.in'
+          ? 'area'
+          : item.unit === 'Nos'
+            ? 'nos'
+            : 'other';
   useEffect(() => {
     if (!more) return;
     const resetMenuScroll = window.requestAnimationFrame(() => {
@@ -2577,11 +2577,7 @@ function Item({
         </div>
         <span className="item-total">
           <strong>{inr(total)}</strong>
-          {savings > 0 && (
-            <small>
-              <s>{inr(original)}</s> · save {inr(savings)}
-            </small>
-          )}
+          {savings > 0 && <small>You save {inr(savings)}</small>}
         </span>
         <Button
           variant={editing ? 'secondary' : 'outline'}
@@ -2807,6 +2803,12 @@ function Item({
                         unit: 'Sq.ft',
                         measurementType: 'sqft',
                       });
+                    } else if (event.target.value === 'area') {
+                      patch({
+                        measureMode: 'quantity',
+                        unit: 'Sq.ft',
+                        measurementType: 'sqft',
+                      });
                     } else if (event.target.value === 'nos') {
                       patch({
                         measureMode: 'quantity',
@@ -2823,6 +2825,7 @@ function Item({
                   }}
                 >
                   <option value="dimensions">Dimensions</option>
+                  <option value="area">Total area</option>
                   <option value="nos">Nos</option>
                   <option value="other">Other unit</option>
                 </select>
@@ -2888,6 +2891,24 @@ function Item({
                 </>
               ) : (
                 <>
+                  {quantityKind === 'area' && (
+                    <label>
+                      Area unit
+                      <select
+                        value={item.unit ?? 'Sq.ft'}
+                        onChange={(event) =>
+                          patch({
+                            unit: event.target.value as BoqUnit,
+                            measurementType: 'sqft',
+                          })
+                        }
+                      >
+                        {['Sq.ft', 'Sq.m', 'Sq.yd', 'Sq.in'].map((unit) => (
+                          <option key={unit}>{unit}</option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                   {quantityKind === 'other' && (
                     <>
                       <label>
@@ -2905,18 +2926,16 @@ function Item({
                             });
                           }}
                         >
-                          {[
-                            'Sq.ft',
-                            'Sq.m',
-                            'R.ft',
-                            'R.m',
-                            'Kg',
-                            'Ltr',
-                            'Set',
-                            'Lot',
-                            'Lump Sum',
-                            'Custom',
-                          ].map((unit) => (
+                          {BOQ_UNITS.filter(
+                            (unit) =>
+                              ![
+                                'Nos',
+                                'Sq.ft',
+                                'Sq.m',
+                                'Sq.yd',
+                                'Sq.in',
+                              ].includes(unit),
+                          ).map((unit) => (
                             <option key={unit}>{unit}</option>
                           ))}
                         </select>
@@ -2935,7 +2954,7 @@ function Item({
                     </>
                   )}
                   <label>
-                    Quantity
+                    {quantityKind === 'area' ? 'Total area' : 'Quantity'}
                     <Num
                       value={item.quantity}
                       onChange={(quantity) => patch({ quantity })}
@@ -3020,32 +3039,12 @@ function Item({
               onChange={(event) => patch({ notes: event.target.value })}
             />
           </label>
-          {item.rateOverride !== undefined &&
-            item.rateOverride < referenceRate && (
-              <div className="rate-saving">
-                <span>
-                  Original rate{' '}
-                  <strong>
-                    {inr(referenceRate)} /{' '}
-                    {item.customUnit || item.unit || item.measurementType}
-                  </strong>
-                </span>
-                <span>
-                  Project rate{' '}
-                  <strong>
-                    {inr(item.rateOverride)} /{' '}
-                    {item.customUnit || item.unit || item.measurementType}
-                  </strong>
-                </span>
-                <span>
-                  You save <strong>{inr(savings)}</strong>
-                </span>
-              </div>
-            )}
-          {item.rateOverride !== undefined && (
-            <p className="override">
-              Project-specific override · global rate card unchanged
-            </p>
+          {savings > 0 && (
+            <div className="rate-saving savings-only">
+              <span>
+                You save <strong>{inr(savings)}</strong>
+              </span>
+            </div>
           )}
           <div className="editor-actions">
             <span>Changes are shared with everyone using this site.</span>

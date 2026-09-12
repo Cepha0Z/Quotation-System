@@ -32,7 +32,7 @@ const EXCEL_THEME = {
   },
   numberFormats: {
     currency: '₹#,##0.00;[Red]-₹#,##0.00;₹0.00',
-    quantity: '#,##0.##',
+    quantity: '#,##0.###',
   },
   detailColumns: [
     { wch: 9 },
