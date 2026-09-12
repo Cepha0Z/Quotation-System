@@ -18,14 +18,17 @@ const EXCEL_THEME = {
   colors: {
     green: '0B4A3F',
     greenDark: '07382F',
-    greenSoft: 'E5EFEA',
-    greenPale: 'F1F6F3',
-    warm: 'F7F4EE',
+    greenSoft: 'D3E2DC',
+    greenPale: 'E2ECE7',
+    warm: 'EEE9DE',
+    surface: 'F4F7F5',
+    surfaceStrong: 'E9EFEC',
     white: 'FFFFFF',
     ink: '18211E',
     muted: '66706C',
-    line: 'B8C0BC',
-    lineSoft: 'D9DEDB',
+    line: '64766F',
+    lineSoft: '95A49E',
+    headerLine: '71968A',
   },
   numberFormats: {
     currency: '₹#,##0.00;[Red]-₹#,##0.00;₹0.00',
@@ -83,8 +86,8 @@ const borders = {
   header: {
     top: edge('medium', c.greenDark),
     bottom: edge('medium', c.greenDark),
-    left: edge('thin', c.white),
-    right: edge('thin', c.white),
+    left: edge('thin', c.headerLine),
+    right: edge('thin', c.headerLine),
   },
   section: {
     top: edge('medium', c.green),
@@ -193,6 +196,13 @@ function mergeLabelRow(
   row: number,
 ) {
   merges.push({ s: { r: row, c: 0 }, e: { r: row, c: 5 } });
+}
+
+function mergeDescriptionRow(
+  merges: { s: { r: number; c: number }; e: { r: number; c: number } }[],
+  row: number,
+) {
+  merges.push({ s: { r: row, c: 1 }, e: { r: row, c: 5 } });
 }
 
 function scalarText(value: unknown) {
@@ -350,7 +360,9 @@ function applyDocumentHeader(
   };
   for (const row of [3, 4, 5]) {
     styleRow(X, ws, row, (column) => ({
-      fill: fill(column === 0 || column === 4 ? c.greenPale : c.white),
+      fill: fill(
+        column === 0 || column === 4 ? c.greenPale : c.surfaceStrong,
+      ),
       font:
         column === 0 || column === 4
           ? font(9, { bold: true, color: c.greenDark })
@@ -402,7 +414,7 @@ function styleDetailSheet(
   const range = X.utils.decode_range(ref);
   for (let row = range.s.r; row <= range.e.r; row += 1) {
     styleRow(X, ws, row, (column, cell) => ({
-      fill: fill(c.white),
+      fill: fill(c.surface),
       font: font(10),
       alignment: {
         vertical: 'center',
@@ -479,7 +491,7 @@ function styleDetailSheet(
   );
   markers.spaceSubtotalRows.forEach((row) =>
     styleRow(X, ws, row, (column, cell) => ({
-      fill: fill(c.white),
+      fill: fill(c.surfaceStrong),
       font: font(10, { bold: true }),
       alignment: {
         vertical: 'center',
@@ -569,6 +581,7 @@ function styleSummarySheet(
     categoryRows: number[];
     interiorTotalRow: number;
     feeSectionRow: number;
+    feeHeaderRow: number;
     feeRows: number[];
     subtotalRow: number;
     discountRow: number;
@@ -581,15 +594,18 @@ function styleSummarySheet(
     [];
   mergeRow(merges, markers.titleRow);
   [
-    markers.columnHeaderRow,
-    ...markers.categoryRows,
     markers.interiorTotalRow,
-    markers.feeSectionRow,
-    ...markers.feeRows,
     markers.subtotalRow,
     markers.discountRow,
     markers.projectTotalRow,
   ].forEach((row) => mergeLabelRow(merges, row));
+  mergeRow(merges, markers.feeSectionRow);
+  [
+    markers.columnHeaderRow,
+    ...markers.categoryRows,
+    markers.feeHeaderRow,
+    ...markers.feeRows,
+  ].forEach((row) => mergeDescriptionRow(merges, row));
   if (markers.notesTitleRow !== undefined)
     mergeRow(merges, markers.notesTitleRow);
   markers.noteRows.forEach((row) => mergeRow(merges, row));
@@ -598,7 +614,7 @@ function styleSummarySheet(
   const range = X.utils.decode_range(ref);
   for (let row = range.s.r; row <= range.e.r; row += 1) {
     styleRow(X, ws, row, (column, cell) => ({
-      fill: fill(c.white),
+      fill: fill(c.surface),
       font: font(10),
       alignment: {
         vertical: 'center',
@@ -619,19 +635,21 @@ function styleSummarySheet(
     alignment: { vertical: 'center', horizontal: 'left', indent: 1 },
     border: borders.section,
   }));
-  styleRow(X, ws, markers.columnHeaderRow, () => ({
-    fill: fill(c.green),
-    font: font(10, { bold: true, color: c.white }),
-    alignment: { vertical: 'center', horizontal: 'center' },
-    border: borders.header,
-  }));
+  for (const row of [markers.columnHeaderRow, markers.feeHeaderRow]) {
+    styleRow(X, ws, row, () => ({
+      fill: fill(c.green),
+      font: font(10, { bold: true, color: c.white }),
+      alignment: { vertical: 'center', horizontal: 'center' },
+      border: borders.header,
+    }));
+  }
   markers.categoryRows.forEach((row) =>
     styleRow(X, ws, row, (column, cell) => ({
-      fill: fill(c.white),
+      fill: fill(c.surface),
       font: font(10),
       alignment: {
         vertical: 'center',
-        horizontal: column === 6 ? 'right' : 'left',
+        horizontal: column === 0 ? 'center' : column === 6 ? 'right' : 'left',
       },
       border: borders.grid,
       numFmt:
@@ -661,11 +679,11 @@ function styleSummarySheet(
   }));
   markers.feeRows.forEach((row) =>
     styleRow(X, ws, row, (column, cell) => ({
-      fill: fill(c.white),
+      fill: fill(c.surface),
       font: font(10),
       alignment: {
         vertical: 'center',
-        horizontal: column === 6 ? 'right' : 'left',
+        horizontal: column === 0 ? 'center' : column === 6 ? 'right' : 'left',
       },
       border: borders.grid,
       numFmt:
@@ -676,7 +694,7 @@ function styleSummarySheet(
   );
   for (const row of [markers.subtotalRow, markers.discountRow]) {
     styleRow(X, ws, row, (column, cell) => ({
-      fill: fill(c.white),
+      fill: fill(c.surfaceStrong),
       font: font(10, { bold: true }),
       alignment: {
         vertical: 'center',
@@ -712,7 +730,7 @@ function styleSummarySheet(
   }
   markers.noteRows.forEach((row) =>
     styleRow(X, ws, row, () => ({
-      fill: fill(c.white),
+      fill: fill(c.surface),
       font: font(9, { color: c.muted }),
       alignment: { vertical: 'top', horizontal: 'left', wrapText: true },
       border: { bottom: edge('thin', c.lineSoft) },
@@ -737,7 +755,8 @@ function styleSummarySheet(
                   ? EXCEL_THEME.rowHeights.section
                   : markers.noteRows.includes(index)
                     ? estimateWrappedHeight(row[0], 105)
-                    : index === markers.columnHeaderRow
+                    : index === markers.columnHeaderRow ||
+                        index === markers.feeHeaderRow
                       ? EXCEL_THEME.rowHeights.columns
                       : EXCEL_THEME.rowHeights.subtotal,
   }));
@@ -892,13 +911,13 @@ export async function createProjectExcelFile(
   const summaryTitleRow = summaryRows.length;
   summaryRows.push(['COST SUMMARY', '', '', '', '', '', '']);
   const summaryHeaderRow = summaryRows.length;
-  summaryRows.push(['WORK TYPE', '', '', '', '', '', 'AMOUNT']);
+  summaryRows.push(['SL. NO.', 'WORK TYPE', '', '', '', '', 'AMOUNT (₹)']);
   const categoryRows: number[] = [];
-  for (const workType of workTypes) {
+  for (const [index, workType] of workTypes.entries()) {
     categoryRows.push(summaryRows.length);
     summaryRows.push([
+      index + 1,
       workType,
-      '',
       '',
       '',
       '',
@@ -919,10 +938,20 @@ export async function createProjectExcelFile(
   summaryRows.push(['', '', '', '', '', '', '']);
   const feeSectionRow = summaryRows.length;
   summaryRows.push(['INTERIOR / PROFESSIONAL FEES', '', '', '', '', '', '']);
+  const feeHeaderRow = summaryRows.length;
+  summaryRows.push([
+    'SL. NO.',
+    'PROFESSIONAL FEE',
+    '',
+    '',
+    '',
+    '',
+    'AMOUNT (₹)',
+  ]);
   const feeRows: number[] = [];
-  for (const fee of totals.fees) {
+  for (const [index, fee] of totals.fees.entries()) {
     feeRows.push(summaryRows.length);
-    summaryRows.push([fee.name, '', '', '', '', '', fee.total]);
+    summaryRows.push([index + 1, fee.name, '', '', '', '', fee.total]);
   }
   const subtotalRow = summaryRows.length;
   summaryRows.push(['SUBTOTAL', '', '', '', '', '', totals.subtotal]);
@@ -949,6 +978,7 @@ export async function createProjectExcelFile(
     categoryRows,
     interiorTotalRow,
     feeSectionRow,
+    feeHeaderRow,
     feeRows,
     subtotalRow,
     discountRow,

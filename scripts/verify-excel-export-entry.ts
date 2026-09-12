@@ -272,6 +272,36 @@ async function main() {
   };
 
   const totals = quoteTotals(project);
+  const summaryRows = X.utils.sheet_to_json<unknown[]>(
+    workbook.Sheets['Summary'],
+    { header: 1, raw: true },
+  );
+  const summaryHeaderRows = summaryRows.filter(
+    (row) => row[0] === 'SL. NO.' && row[6] === 'AMOUNT (₹)',
+  );
+  if (summaryHeaderRows.length !== 2) {
+    throw new Error('Summary tables must both include numbered columns.');
+  }
+  const costSummaryStart = summaryRows.findIndex(
+    (row) => row[0] === 'SL. NO.' && row[1] === 'WORK TYPE',
+  );
+  if (
+    costSummaryStart < 0 ||
+    summaryRows[costSummaryStart + 1]?.[0] !== 1 ||
+    summaryRows[costSummaryStart + 1]?.[1] !== 'Civil Work'
+  ) {
+    throw new Error('Cost Summary serial numbering is incorrect.');
+  }
+  const feeSummaryStart = summaryRows.findIndex(
+    (row) => row[0] === 'SL. NO.' && row[1] === 'PROFESSIONAL FEE',
+  );
+  if (
+    feeSummaryStart < 0 ||
+    summaryRows[feeSummaryStart + 1]?.[0] !== 1 ||
+    summaryRows[feeSummaryStart + 1]?.[1] !== 'Design Fee'
+  ) {
+    throw new Error('Professional fee serial numbering is incorrect.');
+  }
   if (findAmount('Summary', 'PROJECT TOTAL') !== totals.grandTotal) {
     throw new Error('Project total does not reconcile.');
   }
