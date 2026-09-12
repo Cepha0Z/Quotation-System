@@ -32,10 +32,10 @@ const EXCEL_THEME = {
     quantity: '#,##0.##',
   },
   detailColumns: [
-    { wch: 7 },
-    { wch: 72 },
+    { wch: 9 },
+    { wch: 78 },
     { wch: 13 },
-    { wch: 11 },
+    { wch: 10 },
     { wch: 11 },
     { wch: 16 },
     { wch: 19 },
@@ -50,15 +50,15 @@ const EXCEL_THEME = {
     { wch: 21 },
   ],
   rowHeights: {
-    company: 30,
-    contact: 20,
-    spacer: 10,
+    documentTitle: 34,
+    brand: 22,
+    spacer: 8,
     title: 28,
     metadata: 22,
-    section: 27,
+    section: 29,
     columns: 25,
-    floor: 29,
-    space: 25,
+    floor: 30,
+    space: 27,
     subtotal: 23,
     floorSubtotal: 25,
     total: 31,
@@ -160,10 +160,12 @@ function applyOuterFrame(
 ) {
   for (let row = 0; row <= lastRow; row += 1) {
     for (let column = 0; column < 7; column += 1) {
-      if (row !== 0 && row !== lastRow && column !== 0 && column !== 6) continue;
+      if (row !== 0 && row !== lastRow && column !== 0 && column !== 6)
+        continue;
       const cell = getCell(X, ws, row, column);
       const style = cell.s ?? {};
-      const border = (style.border as Record<string, unknown> | undefined) ?? {};
+      const border =
+        (style.border as Record<string, unknown> | undefined) ?? {};
       cell.s = {
         ...style,
         border: {
@@ -178,7 +180,11 @@ function applyOuterFrame(
   }
 }
 
-function mergeRow(merges: { s: { r: number; c: number }; e: { r: number; c: number } }[], row: number, endColumn = 6) {
+function mergeRow(
+  merges: { s: { r: number; c: number }; e: { r: number; c: number } }[],
+  row: number,
+  endColumn = 6,
+) {
   merges.push({ s: { r: row, c: 0 }, e: { r: row, c: endColumn } });
 }
 
@@ -190,14 +196,18 @@ function mergeLabelRow(
 }
 
 function scalarText(value: unknown) {
-  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+  return typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
     ? String(value)
     : '';
 }
 
 function meaningful(value: unknown) {
   const text = scalarText(value).trim();
-  return text.length > 1 && !['n/a', 'na', '-', '—'].includes(text.toLowerCase());
+  return (
+    text.length > 1 && !['n/a', 'na', '-', '—'].includes(text.toLowerCase())
+  );
 }
 
 function displayOrBlank(value: unknown) {
@@ -209,23 +219,55 @@ function baseRows(project: Project, settings: FirmSettings, generatedAt: Date) {
     .map(displayOrBlank)
     .filter(Boolean)
     .join('  ·  ');
-  const propertyDescription = [project.propertyType, project.location]
-    .map(displayOrBlank)
-    .filter(Boolean)
-    .join(' · ');
-  const area = Number(project.carpetArea) > 0
-    ? `${Number(project.carpetArea).toLocaleString('en-IN', { maximumFractionDigits: 2 })} sq.ft`
-    : '';
+  const area =
+    Number(project.carpetArea) > 0
+      ? `${Number(project.carpetArea).toLocaleString('en-IN', { maximumFractionDigits: 2 })} sq.ft`
+      : '';
   const metadata = [
-    ['Project', displayOrBlank(project.propertyName), 'Quotation date', generatedAt.toLocaleDateString('en-IN')],
-    ['Client', displayOrBlank(project.clientName), 'Configuration', displayOrBlank(project.layout)],
-    [propertyDescription ? 'Property' : '', propertyDescription, area ? 'Carpet area' : '', area],
+    [
+      'Project',
+      displayOrBlank(project.propertyName),
+      'Configuration',
+      displayOrBlank(project.layout),
+    ],
+    [
+      'Client',
+      displayOrBlank(project.clientName),
+      area ? 'Carpet Area' : '',
+      area,
+    ],
+    [
+      displayOrBlank(project.propertyType) ? 'Property' : '',
+      displayOrBlank(project.propertyType),
+      displayOrBlank(project.location) ? 'Location' : '',
+      displayOrBlank(project.location),
+    ],
   ];
   return [
-    [displayOrBlank(settings.letterheadName) || displayOrBlank(settings.firmName), '', '', '', '', '', ''],
-    [contact, '', '', '', '', '', ''],
+    [
+      'BOQ / COSTING FOR PROJECT',
+      '',
+      '',
+      '',
+      '',
+      'Date',
+      generatedAt.toLocaleDateString('en-IN', {
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric',
+      }),
+    ],
+    [
+      displayOrBlank(settings.letterheadName) ||
+        displayOrBlank(settings.firmName),
+      '',
+      '',
+      contact,
+      '',
+      '',
+      '',
+    ],
     ['', '', '', '', '', '', ''],
-    ['BOQ / COSTING FOR PROJECT', '', '', '', '', '', ''],
     ...metadata.map(([leftLabel, leftValue, rightLabel, rightValue]) => [
       leftValue ? leftLabel : '',
       leftValue,
@@ -244,53 +286,90 @@ function applyDocumentHeader(
   ws: Worksheet,
   merges: { s: { r: number; c: number }; e: { r: number; c: number } }[],
 ) {
-  [0, 1, 3].forEach((row) => mergeRow(merges, row));
-  for (const row of [4, 5, 6]) {
+  merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: 4 } });
+  merges.push({ s: { r: 1, c: 0 }, e: { r: 1, c: 2 } });
+  merges.push({ s: { r: 1, c: 3 }, e: { r: 1, c: 6 } });
+  for (const row of [3, 4, 5]) {
     merges.push({ s: { r: row, c: 1 }, e: { r: row, c: 3 } });
     merges.push({ s: { r: row, c: 5 }, e: { r: row, c: 6 } });
   }
   styleRow(X, ws, 0, () => ({
     fill: fill(c.green),
-    font: font(16, { bold: true, color: c.white }),
-    alignment: { vertical: 'center', horizontal: 'center' },
-    border: { bottom: edge('thin', c.greenDark) },
+    font: font(15, { bold: true, color: c.white }),
+    alignment: { vertical: 'center', horizontal: 'left' },
+    border: {
+      top: edge('medium', c.greenDark),
+      bottom: edge('thin', c.greenDark),
+      left: edge('medium', c.greenDark),
+      right: edge('medium', c.greenDark),
+    },
   }));
+  getCell(X, ws, 0, 5).s = {
+    fill: fill(c.green),
+    font: font(9, { bold: true, color: 'DCEAE5' }),
+    alignment: { vertical: 'center', horizontal: 'center' },
+    border: {
+      left: edge('thin', '8FB6AA'),
+      top: edge('medium', c.greenDark),
+      bottom: edge('thin', c.greenDark),
+    },
+  };
+  getCell(X, ws, 0, 6).s = {
+    fill: fill(c.green),
+    font: font(10, { bold: true, color: c.white }),
+    alignment: { vertical: 'center', horizontal: 'left' },
+    border: {
+      top: edge('medium', c.greenDark),
+      right: edge('medium', c.greenDark),
+      bottom: edge('thin', c.greenDark),
+    },
+  };
   styleRow(X, ws, 1, () => ({
     fill: fill(c.green),
     font: font(9, { color: 'DCEAE5' }),
-    alignment: { vertical: 'center', horizontal: 'center' },
+    alignment: { vertical: 'center', horizontal: 'left' },
     border: { bottom: edge('medium', c.greenDark) },
   }));
-  styleRow(X, ws, 3, () => ({
-    fill: fill(c.white),
-    font: font(14, { bold: true, color: c.greenDark }),
-    alignment: { vertical: 'center', horizontal: 'center' },
+  getCell(X, ws, 1, 0).s = {
+    fill: fill(c.green),
+    font: font(10, { bold: true, color: c.white }),
+    alignment: { vertical: 'center', horizontal: 'left' },
     border: {
-      top: edge('medium', c.green),
-      bottom: edge('medium', c.green),
+      left: edge('medium', c.greenDark),
+      bottom: edge('medium', c.greenDark),
     },
-  }));
-  for (const row of [4, 5, 6]) {
+  };
+  getCell(X, ws, 1, 3).s = {
+    fill: fill(c.green),
+    font: font(9, { color: 'DCEAE5' }),
+    alignment: { vertical: 'center', horizontal: 'right' },
+    border: {
+      right: edge('medium', c.greenDark),
+      bottom: edge('medium', c.greenDark),
+    },
+  };
+  for (const row of [3, 4, 5]) {
     styleRow(X, ws, row, (column) => ({
-      fill: fill(c.white),
+      fill: fill(column === 0 || column === 4 ? c.greenPale : c.white),
       font:
         column === 0 || column === 4
-          ? font(9, { bold: true, color: c.muted })
+          ? font(9, { bold: true, color: c.greenDark })
           : font(10, { color: c.ink }),
-      alignment: {
-        vertical: 'center',
-        horizontal: column === 0 || column === 4 ? 'left' : column >= 5 ? 'right' : 'left',
-      },
-      border: { bottom: edge('thin', c.lineSoft) },
+      alignment: { vertical: 'center', horizontal: 'left' },
+      border: borders.grid,
     }));
   }
 }
 
-function estimateWrappedHeight(text: unknown, widthCharacters = 68) {
+function estimateWrappedHeight(text: unknown, widthCharacters = 74) {
   const logicalLines = scalarText(text)
     .split('\n')
-    .reduce((count, line) => count + Math.max(1, Math.ceil(line.length / widthCharacters)), 0);
-  return Math.min(300, Math.max(32, logicalLines * 15 + 12));
+    .reduce(
+      (count, line) =>
+        count + Math.max(1, Math.ceil(line.length / widthCharacters)),
+      0,
+    );
+  return Math.min(300, Math.max(27, logicalLines * 15 + 12));
 }
 
 function styleDetailSheet(
@@ -299,7 +378,7 @@ function styleDetailSheet(
   rows: (string | number)[][],
   markers: {
     titleRow: number;
-    columnHeaderRow: number;
+    columnHeaderRows: number[];
     floorRows: number[];
     spaceRows: number[];
     itemRows: number[];
@@ -308,9 +387,12 @@ function styleDetailSheet(
     totalRow: number;
   },
 ) {
-  const merges: { s: { r: number; c: number }; e: { r: number; c: number } }[] = [];
+  const merges: { s: { r: number; c: number }; e: { r: number; c: number } }[] =
+    [];
   mergeRow(merges, markers.titleRow);
-  markers.floorRows.forEach((row) => mergeRow(merges, row));
+  markers.floorRows.forEach((row) =>
+    merges.push({ s: { r: row, c: 1 }, e: { r: row, c: 6 } }),
+  );
   markers.spaceRows.forEach((row) => mergeRow(merges, row));
   markers.spaceSubtotalRows.forEach((row) => mergeLabelRow(merges, row));
   markers.floorSubtotalRows.forEach((row) => mergeLabelRow(merges, row));
@@ -325,9 +407,12 @@ function styleDetailSheet(
       alignment: {
         vertical: 'center',
         horizontal:
-          column === 1 ? 'left' : column === 0 || column === 2 || column === 4 ? 'center' : 'right',
+          column === 1
+            ? 'left'
+            : column === 0 || column === 2 || column === 3 || column === 4
+              ? 'center'
+              : 'right',
         wrapText: column === 1,
-        indent: column === 1 && markers.itemRows.includes(row) ? 1 : 0,
       },
       border: markers.itemRows.includes(row) ? borders.grid : undefined,
       numFmt:
@@ -335,96 +420,133 @@ function styleDetailSheet(
           ? EXCEL_THEME.numberFormats.quantity
           : column === 2 && typeof cell.v === 'string' && cell.v
             ? '@'
-          : (column === 5 || column === 6) && typeof cell.v === 'number'
-            ? EXCEL_THEME.numberFormats.currency
-            : undefined,
+            : (column === 5 || column === 6) && typeof cell.v === 'number'
+              ? EXCEL_THEME.numberFormats.currency
+              : undefined,
     }));
   }
 
   applyDocumentHeader(X, ws, merges);
 
   styleRow(X, ws, markers.titleRow, () => ({
-    fill: fill(c.greenPale),
-    font: font(13, { bold: true, color: c.greenDark }),
-    alignment: { vertical: 'center', horizontal: 'center' },
-    border: borders.section,
+    fill: fill(c.greenDark),
+    font: font(13, { bold: true, color: c.white }),
+    alignment: { vertical: 'center', horizontal: 'left', indent: 1 },
+    border: borders.total,
   }));
-  styleRow(X, ws, markers.columnHeaderRow, () => ({
-    fill: fill(c.green),
-    font: font(10, { bold: true, color: c.white }),
-    alignment: { vertical: 'center', horizontal: 'center', wrapText: false },
-    border: borders.header,
-  }));
-  markers.floorRows.forEach((row) =>
+  markers.columnHeaderRows.forEach((row) =>
     styleRow(X, ws, row, () => ({
-      fill: fill(c.greenSoft),
-      font: font(12, { bold: true, color: c.greenDark }),
-      alignment: { vertical: 'center', horizontal: 'center' },
-      border: borders.section,
+      fill: fill(c.green),
+      font: font(10, { bold: true, color: c.white }),
+      alignment: { vertical: 'center', horizontal: 'center', wrapText: false },
+      border: borders.header,
+    })),
+  );
+  markers.floorRows.forEach((row) =>
+    styleRow(X, ws, row, (column) => ({
+      fill: fill(column === 0 ? c.green : c.greenSoft),
+      font: font(12, {
+        bold: true,
+        color: column === 0 ? c.white : c.greenDark,
+      }),
+      alignment: {
+        vertical: 'center',
+        horizontal: column === 0 ? 'center' : 'left',
+        indent: column === 0 ? 0 : 1,
+      },
+      border:
+        column === 0
+          ? borders.header
+          : {
+              top: edge('medium', c.green),
+              bottom: edge('medium', c.green),
+              right: column === 6 ? edge('medium', c.green) : undefined,
+            },
     })),
   );
   markers.spaceRows.forEach((row) =>
     styleRow(X, ws, row, () => ({
       fill: fill(c.warm),
-      font: font(10, { bold: true, color: c.ink }),
-      alignment: { vertical: 'center', horizontal: 'center' },
-      border: borders.grid,
+      font: font(11, { bold: true, color: c.ink }),
+      alignment: { vertical: 'center', horizontal: 'left', indent: 1 },
+      border: {
+        top: edge('thin', c.line),
+        bottom: edge('thin', c.line),
+        left: edge('medium', c.green),
+        right: edge('medium', c.green),
+      },
     })),
   );
   markers.spaceSubtotalRows.forEach((row) =>
     styleRow(X, ws, row, (column, cell) => ({
       fill: fill(c.white),
       font: font(10, { bold: true }),
-      alignment: { vertical: 'center', horizontal: column === 6 ? 'right' : 'left' },
+      alignment: {
+        vertical: 'center',
+        horizontal: column === 6 ? 'right' : 'left',
+      },
       border: borders.subtotal,
-      numFmt: column === 6 && typeof cell.v === 'number' ? EXCEL_THEME.numberFormats.currency : undefined,
+      numFmt:
+        column === 6 && typeof cell.v === 'number'
+          ? EXCEL_THEME.numberFormats.currency
+          : undefined,
     })),
   );
   markers.floorSubtotalRows.forEach((row) =>
     styleRow(X, ws, row, (column, cell) => ({
       fill: fill(c.greenPale),
       font: font(10, { bold: true, color: c.greenDark }),
-      alignment: { vertical: 'center', horizontal: column === 6 ? 'right' : 'left' },
+      alignment: {
+        vertical: 'center',
+        horizontal: column === 6 ? 'right' : 'left',
+      },
       border: borders.floorSubtotal,
-      numFmt: column === 6 && typeof cell.v === 'number' ? EXCEL_THEME.numberFormats.currency : undefined,
+      numFmt:
+        column === 6 && typeof cell.v === 'number'
+          ? EXCEL_THEME.numberFormats.currency
+          : undefined,
     })),
   );
   styleRow(X, ws, markers.totalRow, (column, cell) => ({
     fill: fill(c.green),
     font: font(12, { bold: true, color: c.white }),
-    alignment: { vertical: 'center', horizontal: column === 6 ? 'right' : 'left' },
+    alignment: {
+      vertical: 'center',
+      horizontal: column === 6 ? 'right' : 'left',
+    },
     border: borders.total,
-    numFmt: column === 6 && typeof cell.v === 'number' ? EXCEL_THEME.numberFormats.currency : undefined,
+    numFmt:
+      column === 6 && typeof cell.v === 'number'
+        ? EXCEL_THEME.numberFormats.currency
+        : undefined,
   }));
 
   ws['!cols'] = [...EXCEL_THEME.detailColumns];
   ws['!rows'] = rows.map((row, index) => ({
     hpt:
       index === 0
-        ? EXCEL_THEME.rowHeights.company
+        ? EXCEL_THEME.rowHeights.documentTitle
         : index === 1
-          ? EXCEL_THEME.rowHeights.contact
-          : index === 2 || index === 7
+          ? EXCEL_THEME.rowHeights.brand
+          : index === 2 || index === 6
             ? EXCEL_THEME.rowHeights.spacer
-            : index === 3
-              ? EXCEL_THEME.rowHeights.title
-              : [4, 5, 6].includes(index)
-                ? EXCEL_THEME.rowHeights.metadata
-                : index === markers.titleRow
-                  ? EXCEL_THEME.rowHeights.section
-                  : index === markers.columnHeaderRow
-                    ? EXCEL_THEME.rowHeights.columns
-                    : markers.floorRows.includes(index)
-                      ? EXCEL_THEME.rowHeights.floor
-                      : markers.spaceRows.includes(index)
-                        ? EXCEL_THEME.rowHeights.space
-                        : markers.itemRows.includes(index)
-                          ? estimateWrappedHeight(row[1])
-                          : markers.floorSubtotalRows.includes(index)
-                            ? EXCEL_THEME.rowHeights.floorSubtotal
-                            : index === markers.totalRow
-                              ? EXCEL_THEME.rowHeights.total
-                              : EXCEL_THEME.rowHeights.subtotal,
+            : [3, 4, 5].includes(index)
+              ? EXCEL_THEME.rowHeights.metadata
+              : index === markers.titleRow
+                ? EXCEL_THEME.rowHeights.section
+                : markers.columnHeaderRows.includes(index)
+                  ? EXCEL_THEME.rowHeights.columns
+                  : markers.floorRows.includes(index)
+                    ? EXCEL_THEME.rowHeights.floor
+                    : markers.spaceRows.includes(index)
+                      ? EXCEL_THEME.rowHeights.space
+                      : markers.itemRows.includes(index)
+                        ? estimateWrappedHeight(row[1])
+                        : markers.floorSubtotalRows.includes(index)
+                          ? EXCEL_THEME.rowHeights.floorSubtotal
+                          : index === markers.totalRow
+                            ? EXCEL_THEME.rowHeights.total
+                            : EXCEL_THEME.rowHeights.subtotal,
   }));
   ws['!merges'] = merges;
   applyOuterFrame(X, ws, rows.length - 1);
@@ -455,7 +577,8 @@ function styleSummarySheet(
     noteRows: number[];
   },
 ) {
-  const merges: { s: { r: number; c: number }; e: { r: number; c: number } }[] = [];
+  const merges: { s: { r: number; c: number }; e: { r: number; c: number } }[] =
+    [];
   mergeRow(merges, markers.titleRow);
   [
     markers.columnHeaderRow,
@@ -467,7 +590,8 @@ function styleSummarySheet(
     markers.discountRow,
     markers.projectTotalRow,
   ].forEach((row) => mergeLabelRow(merges, row));
-  if (markers.notesTitleRow !== undefined) mergeRow(merges, markers.notesTitleRow);
+  if (markers.notesTitleRow !== undefined)
+    mergeRow(merges, markers.notesTitleRow);
   markers.noteRows.forEach((row) => mergeRow(merges, row));
 
   const ref = ws['!ref'] as string;
@@ -476,16 +600,23 @@ function styleSummarySheet(
     styleRow(X, ws, row, (column, cell) => ({
       fill: fill(c.white),
       font: font(10),
-      alignment: { vertical: 'center', horizontal: column === 6 ? 'right' : 'left', wrapText: true },
+      alignment: {
+        vertical: 'center',
+        horizontal: column === 6 ? 'right' : 'left',
+        wrapText: true,
+      },
       border: undefined,
-      numFmt: column === 6 && typeof cell.v === 'number' ? EXCEL_THEME.numberFormats.currency : undefined,
+      numFmt:
+        column === 6 && typeof cell.v === 'number'
+          ? EXCEL_THEME.numberFormats.currency
+          : undefined,
     }));
   }
   applyDocumentHeader(X, ws, merges);
   styleRow(X, ws, markers.titleRow, () => ({
-    fill: fill(c.greenPale),
+    fill: fill(c.greenSoft),
     font: font(12, { bold: true, color: c.greenDark }),
-    alignment: { vertical: 'center', horizontal: 'left' },
+    alignment: { vertical: 'center', horizontal: 'left', indent: 1 },
     border: borders.section,
   }));
   styleRow(X, ws, markers.columnHeaderRow, () => ({
@@ -498,17 +629,29 @@ function styleSummarySheet(
     styleRow(X, ws, row, (column, cell) => ({
       fill: fill(c.white),
       font: font(10),
-      alignment: { vertical: 'center', horizontal: column === 6 ? 'right' : 'left' },
+      alignment: {
+        vertical: 'center',
+        horizontal: column === 6 ? 'right' : 'left',
+      },
       border: borders.grid,
-      numFmt: column === 6 && typeof cell.v === 'number' ? EXCEL_THEME.numberFormats.currency : undefined,
+      numFmt:
+        column === 6 && typeof cell.v === 'number'
+          ? EXCEL_THEME.numberFormats.currency
+          : undefined,
     })),
   );
   styleRow(X, ws, markers.interiorTotalRow, (column, cell) => ({
     fill: fill(c.greenPale),
     font: font(10, { bold: true, color: c.greenDark }),
-    alignment: { vertical: 'center', horizontal: column === 6 ? 'right' : 'left' },
+    alignment: {
+      vertical: 'center',
+      horizontal: column === 6 ? 'right' : 'left',
+    },
     border: borders.floorSubtotal,
-    numFmt: column === 6 && typeof cell.v === 'number' ? EXCEL_THEME.numberFormats.currency : undefined,
+    numFmt:
+      column === 6 && typeof cell.v === 'number'
+        ? EXCEL_THEME.numberFormats.currency
+        : undefined,
   }));
   styleRow(X, ws, markers.feeSectionRow, () => ({
     fill: fill(c.warm),
@@ -520,26 +663,44 @@ function styleSummarySheet(
     styleRow(X, ws, row, (column, cell) => ({
       fill: fill(c.white),
       font: font(10),
-      alignment: { vertical: 'center', horizontal: column === 6 ? 'right' : 'left' },
+      alignment: {
+        vertical: 'center',
+        horizontal: column === 6 ? 'right' : 'left',
+      },
       border: borders.grid,
-      numFmt: column === 6 && typeof cell.v === 'number' ? EXCEL_THEME.numberFormats.currency : undefined,
+      numFmt:
+        column === 6 && typeof cell.v === 'number'
+          ? EXCEL_THEME.numberFormats.currency
+          : undefined,
     })),
   );
   for (const row of [markers.subtotalRow, markers.discountRow]) {
     styleRow(X, ws, row, (column, cell) => ({
       fill: fill(c.white),
       font: font(10, { bold: true }),
-      alignment: { vertical: 'center', horizontal: column === 6 ? 'right' : 'left' },
+      alignment: {
+        vertical: 'center',
+        horizontal: column === 6 ? 'right' : 'left',
+      },
       border: borders.subtotal,
-      numFmt: column === 6 && typeof cell.v === 'number' ? EXCEL_THEME.numberFormats.currency : undefined,
+      numFmt:
+        column === 6 && typeof cell.v === 'number'
+          ? EXCEL_THEME.numberFormats.currency
+          : undefined,
     }));
   }
   styleRow(X, ws, markers.projectTotalRow, (column, cell) => ({
     fill: fill(c.green),
     font: font(13, { bold: true, color: c.white }),
-    alignment: { vertical: 'center', horizontal: column === 6 ? 'right' : 'left' },
+    alignment: {
+      vertical: 'center',
+      horizontal: column === 6 ? 'right' : 'left',
+    },
     border: borders.total,
-    numFmt: column === 6 && typeof cell.v === 'number' ? EXCEL_THEME.numberFormats.currency : undefined,
+    numFmt:
+      column === 6 && typeof cell.v === 'number'
+        ? EXCEL_THEME.numberFormats.currency
+        : undefined,
   }));
   if (markers.notesTitleRow !== undefined) {
     styleRow(X, ws, markers.notesTitleRow, () => ({
@@ -561,24 +722,24 @@ function styleSummarySheet(
   ws['!rows'] = rows.map((row, index) => ({
     hpt:
       index === 0
-        ? EXCEL_THEME.rowHeights.company
+        ? EXCEL_THEME.rowHeights.documentTitle
         : index === 1
-          ? EXCEL_THEME.rowHeights.contact
-          : index === 2 || index === 7
+          ? EXCEL_THEME.rowHeights.brand
+          : index === 2 || index === 6
             ? EXCEL_THEME.rowHeights.spacer
-            : index === 3
-              ? EXCEL_THEME.rowHeights.title
-              : [4, 5, 6].includes(index)
-                ? EXCEL_THEME.rowHeights.metadata
-                : index === markers.projectTotalRow
-                  ? EXCEL_THEME.rowHeights.total
-                  : index === markers.titleRow || index === markers.feeSectionRow || index === markers.notesTitleRow
-                    ? EXCEL_THEME.rowHeights.section
-                    : markers.noteRows.includes(index)
-                      ? estimateWrappedHeight(row[0], 105)
-                      : index === markers.columnHeaderRow
-                        ? EXCEL_THEME.rowHeights.columns
-                        : EXCEL_THEME.rowHeights.subtotal,
+            : [3, 4, 5].includes(index)
+              ? EXCEL_THEME.rowHeights.metadata
+              : index === markers.projectTotalRow
+                ? EXCEL_THEME.rowHeights.total
+                : index === markers.titleRow ||
+                    index === markers.feeSectionRow ||
+                    index === markers.notesTitleRow
+                  ? EXCEL_THEME.rowHeights.section
+                  : markers.noteRows.includes(index)
+                    ? estimateWrappedHeight(row[0], 105)
+                    : index === markers.columnHeaderRow
+                      ? EXCEL_THEME.rowHeights.columns
+                      : EXCEL_THEME.rowHeights.subtotal,
   }));
   ws['!merges'] = merges;
   applyOuterFrame(X, ws, rows.length - 1);
@@ -602,7 +763,8 @@ function patchWorksheetXml(
   footerText: string,
   fitToHeight: number,
 ) {
-  const sheetPr = '<sheetPr><pageSetUpPr fitToPage="1" autoPageBreaks="1"/></sheetPr>';
+  const sheetPr =
+    '<sheetPr><pageSetUpPr fitToPage="1" autoPageBreaks="1"/></sheetPr>';
   if (/<sheetPr[\s>]/.test(xml)) {
     xml = xml.replace(/<sheetPr[^>]*\/>|<sheetPr[\s\S]*?<\/sheetPr>/, sheetPr);
   } else {
@@ -620,19 +782,28 @@ function patchWorksheetXml(
     '<pageMargins left="0.3" right="0.3" top="0.45" bottom="0.45" header="0.2" footer="0.25"/>' +
     `<pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="${fitToHeight}" horizontalDpi="300" verticalDpi="300"/>` +
     `<headerFooter><oddFooter>&amp;L${xmlEscape(footerText)}&amp;RPage &amp;P of &amp;N</oddFooter></headerFooter>`;
-  if (xml.includes('<ignoredErrors')) return xml.replace('<ignoredErrors', `${printXml}<ignoredErrors`);
+  if (xml.includes('<ignoredErrors'))
+    return xml.replace('<ignoredErrors', `${printXml}<ignoredErrors`);
   return xml.replace('</worksheet>', `${printXml}</worksheet>`);
 }
 
 function patchNativeExcelFeatures(
   bytes: Uint8Array,
-  sheets: { name: string; lastRow: number; repeatHeaderRow?: number; fitToHeight: number }[],
+  sheets: {
+    name: string;
+    lastRow: number;
+    repeatHeaderRow?: number;
+    fitToHeight: number;
+  }[],
   footerText: string,
 ) {
   const files = unzipSync(bytes);
   const workbookPath = 'xl/workbook.xml';
   let workbookXml = strFromU8(files[workbookPath]);
-  workbookXml = workbookXml.replace(/<definedNames>[\s\S]*?<\/definedNames>/g, '');
+  workbookXml = workbookXml.replace(
+    /<definedNames>[\s\S]*?<\/definedNames>/g,
+    '',
+  );
   const definedNames = sheets.flatMap((sheet, index) => {
     const formulaName = xmlEscape(formulaSheetName(sheet.name));
     const names = [
@@ -674,7 +845,9 @@ export async function createProjectExcelFile(
   workbook.Props = {
     Title: `BOQ / Costing${meaningful(project.propertyName) ? ` for ${project.propertyName}` : ''}`,
     Subject: displayOrBlank(project.propertyName),
-    Author: displayOrBlank(settings.letterheadName) || displayOrBlank(settings.firmName),
+    Author:
+      displayOrBlank(settings.letterheadName) ||
+      displayOrBlank(settings.firmName),
     Company: displayOrBlank(settings.firmName),
     CreatedDate: generatedAt,
   };
@@ -691,7 +864,8 @@ export async function createProjectExcelFile(
   const workTypes = [
     ...WORK_TYPES.filter((workType) => discoveredWorkTypes.includes(workType)),
     ...discoveredWorkTypes.filter(
-      (workType) => !WORK_TYPES.includes(workType as (typeof WORK_TYPES)[number]),
+      (workType) =>
+        !WORK_TYPES.includes(workType as (typeof WORK_TYPES)[number]),
     ),
   ];
   const workTypeTotals = new Map(
@@ -701,8 +875,14 @@ export async function createProjectExcelFile(
         (sum, space) =>
           sum +
           space.items
-            .filter((item) => item.enabled && (item.workType ?? 'Millwork') === workType)
-            .reduce((itemSum, item) => itemSum + itemTotal(item, project.defaultTier), 0),
+            .filter(
+              (item) =>
+                item.enabled && (item.workType ?? 'Millwork') === workType,
+            )
+            .reduce(
+              (itemSum, item) => itemSum + itemTotal(item, project.defaultTier),
+              0,
+            ),
         0,
       ),
     ]),
@@ -716,10 +896,26 @@ export async function createProjectExcelFile(
   const categoryRows: number[] = [];
   for (const workType of workTypes) {
     categoryRows.push(summaryRows.length);
-    summaryRows.push([workType, '', '', '', '', '', workTypeTotals.get(workType) ?? 0]);
+    summaryRows.push([
+      workType,
+      '',
+      '',
+      '',
+      '',
+      '',
+      workTypeTotals.get(workType) ?? 0,
+    ]);
   }
   const interiorTotalRow = summaryRows.length;
-  summaryRows.push(['INTERIOR WORKS TOTAL', '', '', '', '', '', totals.interior]);
+  summaryRows.push([
+    'INTERIOR WORKS TOTAL',
+    '',
+    '',
+    '',
+    '',
+    '',
+    totals.interior,
+  ]);
   summaryRows.push(['', '', '', '', '', '', '']);
   const feeSectionRow = summaryRows.length;
   summaryRows.push(['INTERIOR / PROFESSIONAL FEES', '', '', '', '', '', '']);
@@ -786,38 +982,56 @@ export async function createProjectExcelFile(
     lastRow: number;
     repeatHeaderRow?: number;
     fitToHeight: number;
-  }[] = [
-    { name: 'Summary', lastRow: summaryRows.length, fitToHeight: 1 },
-  ];
+  }[] = [{ name: 'Summary', lastRow: summaryRows.length, fitToHeight: 1 }];
   for (const workType of workTypes) {
     const rows = baseRows(project, settings, generatedAt);
     const titleRow = rows.length;
     rows.push([workType.toUpperCase(), '', '', '', '', '', '']);
-    const columnHeaderRow = rows.length;
-    rows.push(['Sl.no', 'Particulars', 'HSN Code', 'Qty', 'Unit', 'Rate', 'Amount']);
+    const columnHeaderRows: number[] = [];
     const floorRows: number[] = [];
     const spaceRows: number[] = [];
     const itemRows: number[] = [];
     const spaceSubtotalRows: number[] = [];
     const floorSubtotalRows: number[] = [];
     let serial = 1;
+    let floorSection = 1;
     for (const floor of project.floors ?? []) {
       const floorSpaces = project.rooms
         .filter((space) => space.floorId === floor.id)
         .map((space) => ({
           space,
           items: space.items.filter(
-            (item) => item.enabled && (item.workType ?? 'Millwork') === workType,
+            (item) =>
+              item.enabled && (item.workType ?? 'Millwork') === workType,
           ),
         }))
         .filter(({ items }) => items.length > 0);
       if (!floorSpaces.length) continue;
       floorRows.push(rows.length);
-      rows.push([floor.name.toUpperCase(), '', '', '', '', '', '']);
+      rows.push([
+        String(floorSection).padStart(2, '0'),
+        floor.name.toUpperCase(),
+        '',
+        '',
+        '',
+        '',
+        '',
+      ]);
+      floorSection += 1;
       let floorTotal = 0;
       for (const { space, items } of floorSpaces) {
         spaceRows.push(rows.length);
         rows.push([space.name, '', '', '', '', '', '']);
+        columnHeaderRows.push(rows.length);
+        rows.push([
+          'Sl. No.',
+          'Particulars',
+          'HSN Code',
+          'Qty',
+          'Unit',
+          'Rate (₹)',
+          'Amount (₹)',
+        ]);
         let spaceTotal = 0;
         for (const item of items) {
           const dimensions =
@@ -832,16 +1046,21 @@ export async function createProjectExcelFile(
               : '';
           const components = item.subUnits
             .filter((component) => component.enabled)
-            .map((component) => `${component.name} (₹${component.rate.toLocaleString('en-IN')})`)
+            .map(
+              (component) =>
+                `${component.name} (₹${component.rate.toLocaleString('en-IN')})`,
+            )
             .join(', ');
           const particulars = [
             `${item.name}${item.description ? `: ${item.description}` : ''}`,
-            dimensions ? `Size: ${dimensions} ${item.dimensionUnit ?? 'ft'}` : '',
+            dimensions
+              ? `Size: ${dimensions} ${item.dimensionUnit ?? 'ft'}`
+              : '',
             components ? `Components: ${components}` : '',
             item.notes ?? '',
           ]
             .filter(Boolean)
-            .join('  ·  ');
+            .join('\n');
           const amount = itemTotal(item, project.defaultTier);
           itemRows.push(rows.length);
           rows.push([
@@ -849,7 +1068,9 @@ export async function createProjectExcelFile(
             particulars,
             item.hsnCode ?? '',
             item.pricingMode === 'lump-sum' ? 1 : itemMeasure(item),
-            item.customUnit || item.unit || unitForMeasurement(item.measurementType),
+            item.customUnit ||
+              item.unit ||
+              unitForMeasurement(item.measurementType),
             itemBaseRate(item, project.defaultTier),
             amount,
           ]);
@@ -865,11 +1086,19 @@ export async function createProjectExcelFile(
       rows.push(['', '', '', '', '', '', '']);
     }
     const totalRow = rows.length;
-    rows.push([`${workType.toUpperCase()} TOTAL`, '', '', '', '', '', workTypeTotals.get(workType) ?? 0]);
+    rows.push([
+      `${workType.toUpperCase()} TOTAL`,
+      '',
+      '',
+      '',
+      '',
+      '',
+      workTypeTotals.get(workType) ?? 0,
+    ]);
     const sheet = X.utils.aoa_to_sheet(rows);
     styleDetailSheet(X, sheet, rows, {
       titleRow,
-      columnHeaderRow,
+      columnHeaderRows,
       floorRows,
       spaceRows,
       itemRows,
@@ -882,7 +1111,7 @@ export async function createProjectExcelFile(
     nativeSheets.push({
       name: sheetName,
       lastRow: rows.length,
-      repeatHeaderRow: columnHeaderRow + 1,
+      repeatHeaderRow: columnHeaderRows[0] + 1,
       fitToHeight: rows.length <= 26 ? 1 : 0,
     });
   }
@@ -893,7 +1122,8 @@ export async function createProjectExcelFile(
   const bytes = patchNativeExcelFeatures(
     raw,
     nativeSheets,
-    displayOrBlank(settings.letterheadName) || displayOrBlank(settings.firmName),
+    displayOrBlank(settings.letterheadName) ||
+      displayOrBlank(settings.firmName),
   );
   const projectFileName = displayOrBlank(project.propertyName) || 'project';
   const filename = `${projectFileName.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'project'}-quotation.xlsx`;
@@ -912,7 +1142,9 @@ export function excelBytesToBase64(bytes: Uint8Array) {
   let binary = '';
   const chunkSize = 0x8000;
   for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+    binary += String.fromCharCode(
+      ...bytes.subarray(offset, offset + chunkSize),
+    );
   }
   return btoa(binary);
 }
