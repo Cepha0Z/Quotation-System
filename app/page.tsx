@@ -1061,15 +1061,31 @@ function NewProject({ s }: { s: Store }) {
 function Page({
   title,
   sub,
+  back,
   children,
 }: {
   title: string;
   sub: string;
+  back?: {
+    label: string;
+    onClick: () => void;
+  };
   children: React.ReactNode;
 }) {
   return (
     <main className="page">
       <header className="page-title">
+        {back && (
+          <Button
+            className="page-back"
+            type="button"
+            variant="outline"
+            onClick={back.onClick}
+          >
+            <ChevronLeft />
+            {back.label}
+          </Button>
+        )}
         <h1>{title}</h1>
         <p>{sub}</p>
       </header>
@@ -2399,24 +2415,45 @@ function Builder({ s }: { s: Store }) {
         </Modal>
       )}
       {revisionModal && (
-        <Modal title="Save revision" close={() => setRevisionModal(false)}>
-          <div className="form-grid single-column">
-            <label>
-              Revision note (optional)
-              <Input
-                autoFocus
-                value={revisionNote}
-                onChange={(event) => setRevisionNote(event.target.value)}
-                placeholder="For example: Client requested changes"
-              />
-            </label>
-          </div>
-          <div className="actions">
-            <Button variant="outline" onClick={() => setRevisionModal(false)}>
-              Cancel
-            </Button>
-            <Button onClick={() => saveRev(revisionNote)}>Save revision</Button>
-          </div>
+        <Modal
+          title="Save revision"
+          className="save-revision-modal"
+          close={() => setRevisionModal(false)}
+        >
+          <form
+            className="revision-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              saveRev(revisionNote);
+            }}
+          >
+            <div className="form-grid single-column">
+              <label>
+                <span className="revision-field-label">
+                  Revision note <em>(optional)</em>
+                </span>
+                <Input
+                  autoFocus
+                  value={revisionNote}
+                  onChange={(event) => setRevisionNote(event.target.value)}
+                  placeholder="For example: Client requested changes"
+                />
+              </label>
+            </div>
+            <div className="actions">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setRevisionModal(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit">
+                <Save />
+                Save revision
+              </Button>
+            </div>
+          </form>
         </Modal>
       )}
       {deleteProject && (
@@ -3333,6 +3370,10 @@ function Revisions({ s }: { s: Store }) {
     <Page
       title="Revision history"
       sub={`${p.propertyName} · restoring never deletes an earlier snapshot.`}
+      back={{
+        label: 'Back to builder',
+        onClick: () => go(`/projects/${id}`),
+      }}
     >
       <section className="panel revisions">
         {revs.length ? (

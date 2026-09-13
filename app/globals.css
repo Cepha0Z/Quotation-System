@@ -393,6 +393,28 @@ small {
 .page-title {
   margin-bottom: 26px;
 }
+.page-back {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 14px;
+  padding: 0 12px 0 9px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: #365047;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1;
+}
+.page-back:hover {
+  border-color: #aebbb5;
+  background: #f2f6f3;
+}
+.page-back svg {
+  width: 18px;
+  height: 18px;
+}
 .page-title h1,
 .builder-head h1 {
   margin: 0;
@@ -560,6 +582,70 @@ td small {
     500 24px Georgia,
     serif;
   margin: 3px 0;
+}
+.save-revision-modal {
+  width: min(560px, 100%);
+  padding: 0;
+  overflow: hidden;
+}
+.save-revision-modal > header {
+  align-items: center;
+  margin: 0;
+  padding: 22px 24px;
+}
+.save-revision-modal > header > button {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+}
+.revision-form {
+  display: grid;
+  gap: 24px;
+  padding: 24px;
+}
+.revision-form .form-grid {
+  gap: 8px;
+}
+.revision-form .form-grid label {
+  gap: 9px;
+  color: #31443d;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+.revision-field-label {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+.revision-field-label em {
+  color: #77827d;
+  font-size: 13px;
+  font-weight: 450;
+  font-style: normal;
+}
+.revision-form input {
+  height: 48px;
+  padding-inline: 14px;
+}
+.revision-form .actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.revision-form .actions button {
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 16px;
+  line-height: 1.2;
+}
+.revision-form .actions button svg {
+  width: 17px;
+  height: 17px;
 }
 .builder {
   min-height: calc(100vh - 78px);
