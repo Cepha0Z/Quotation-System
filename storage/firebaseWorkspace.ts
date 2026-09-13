@@ -15,6 +15,7 @@ import {
   runTransaction,
   set,
   update,
+  type Database,
   type Unsubscribe,
 } from 'firebase/database';
 import { normalizeProject } from '@/domain/boq';
@@ -145,12 +146,14 @@ export function projectFinancial(project: Project) {
   });
 }
 
-function revisionTechnical(revision: Revision) {
+function revisionTechnical(revision: Revision, user?: WorkspaceUser) {
   return clean({
     id: revision.id,
     projectId: revision.projectId,
     number: revision.number,
     createdAt: revision.createdAt,
+    createdBy: revision.createdBy ?? user?.uid,
+    authorName: revision.authorName ?? user?.displayName,
     note: revision.note,
     snapshot: projectTechnical(revision.snapshot),
   });
@@ -162,6 +165,8 @@ function combineTechnicalRevision(revision: JsonRecord): Revision {
     projectId: revision.projectId,
     number: revision.number,
     createdAt: revision.createdAt,
+    createdBy: revision.createdBy,
+    authorName: revision.authorName,
     note: revision.note ?? '',
     total: 0,
     technicalOnly: true,
@@ -433,37 +438,76 @@ export async function saveSettings(
 }
 
 export async function saveRevisions(
+  user: WorkspaceUser,
   previous: Revision[],
   revisions: Revision[],
 ) {
-  await transactionalMerge('revisions', keyed(previous), keyed(revisions));
+  const services = getFirebaseServices();
+  if (!services || user.role !== 'admin')
+    throw new Error('Administrator access required');
+  const before = new Map(previous.map((revision) => [revision.id, revision]));
+  const next = new Map(revisions.map((revision) => [revision.id, revision]));
+  const changes: JsonRecord = {};
+  for (const revision of revisions) {
+    if (JSON.stringify(before.get(revision.id)) === JSON.stringify(revision))
+      continue;
+    const full = clean({
+      ...revision,
+      createdBy: revision.createdBy ?? user.uid,
+      authorName: revision.authorName ?? user.displayName,
+    });
+    changes[`revisions/${revision.id}`] = full;
+    changes[
+      `projectsTechnical/${revision.projectId}/revisionHistory/${revision.id}`
+    ] = revisionTechnical(full, user);
+  }
+  for (const revision of previous) {
+    if (next.has(revision.id)) continue;
+    changes[`revisions/${revision.id}`] = null;
+    changes[
+      `projectsTechnical/${revision.projectId}/revisionHistory/${revision.id}`
+    ] = null;
+  }
+  if (Object.keys(changes).length)
+    await update(ref(services.database), changes);
 }
 
 export async function saveTechnicalRevisions(
+  user: WorkspaceUser,
   previous: Revision[],
   revisions: Revision[],
 ) {
-  const projectIds = new Set([
-    ...previous.map((revision) => revision.projectId),
-    ...revisions.map((revision) => revision.projectId),
-  ]);
-  for (const projectId of projectIds) {
-    const before = keyed(
-      previous
-        .filter((revision) => revision.projectId === projectId)
-        .map(revisionTechnical),
-    );
-    const next = keyed(
-      revisions
-        .filter((revision) => revision.projectId === projectId)
-        .map(revisionTechnical),
-    );
-    await transactionalMerge(
-      `projectsTechnical/${projectId}/revisionHistory`,
-      before,
-      next,
+  const services = getFirebaseServices();
+  if (!services) throw new Error('Firebase is not configured');
+  const existing = new Set(previous.map((revision) => revision.id));
+  for (const revision of revisions) {
+    if (existing.has(revision.id)) continue;
+    const value = revisionTechnical(revision, user);
+    await runTransaction(
+      ref(
+        services.database,
+        `projectsTechnical/${revision.projectId}/revisionHistory/${revision.id}`,
+      ),
+      (current) => current ?? value,
+      { applyLocally: false },
     );
   }
+}
+
+async function publishLegacyTechnicalRevision(
+  database: Database,
+  user: WorkspaceUser,
+  revision: Revision,
+) {
+  if (user.role !== 'admin') return;
+  await runTransaction(
+    ref(
+      database,
+      `projectsTechnical/${revision.projectId}/revisionHistory/${revision.id}`,
+    ),
+    (current) => current ?? revisionTechnical(revision, user),
+    { applyLocally: false },
+  );
 }
 
 export async function deleteProject(user: WorkspaceUser, projectId: string) {
@@ -557,15 +601,17 @@ export function subscribeWorkspace(
   const state: WorkspaceSnapshot = { projects: [], rates: [], revisions: [] };
   const technical = new Map<string, JsonRecord>();
   const financial = new Map<string, JsonRecord>();
+  const privateRevisions = new Map<string, Revision>();
   const projectUnsubscribers = new Map<string, Unsubscribe[]>();
   const employeePendingProjects = new Set<string>();
   let adminTechnicalReady = user.role !== 'admin';
   let adminFinancialReady = user.role !== 'admin';
   let adminRatesReady = user.role !== 'admin';
+  let adminRevisionsReady = user.role !== 'admin';
   let active = true;
   const repairs = new Set<string>();
   const emit = () => {
-    if (!active || !adminTechnicalReady || !adminFinancialReady || !adminRatesReady) return;
+    if (!active || !adminTechnicalReady || !adminFinancialReady || !adminRatesReady || !adminRevisionsReady) return;
     if (employeePendingProjects.size) return;
     state.projects = [...technical.entries()]
       .map(([id, value]) => {
@@ -587,14 +633,37 @@ export function subscribeWorkspace(
         return combineProject(value, initialized, state.rates);
       })
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-    if (user.role === 'employee')
-      state.revisions = [...technical.values()].flatMap((project) =>
-        Object.values(
-          (project.revisionHistory ?? {}) as Record<string, JsonRecord>,
-        ).map(
-          combineTechnicalRevision,
+    const sharedRevisions = [...technical.values()].flatMap((project) =>
+      Object.values(
+        (project.revisionHistory ?? {}) as Record<string, JsonRecord>,
+      ).map(combineTechnicalRevision),
+    );
+    if (user.role === 'admin') {
+      const sharedIds = new Set(sharedRevisions.map((revision) => revision.id));
+      state.revisions = [
+        ...sharedRevisions.map(
+          (revision) => privateRevisions.get(revision.id) ?? revision,
         ),
-      );
+        ...[...privateRevisions.values()].filter(
+          (revision) => !sharedIds.has(revision.id),
+        ),
+      ];
+      for (const revision of privateRevisions.values()) {
+        if (sharedIds.has(revision.id) || !technical.has(revision.projectId))
+          continue;
+        const key = `${revision.projectId}:${revision.id}`;
+        if (repairs.has(key)) continue;
+        repairs.add(key);
+        void publishLegacyTechnicalRevision(services.database, user, revision).then(
+          () => repairs.delete(key),
+          () => {
+            repairs.delete(key);
+            if (active)
+              error('Could not add an existing revision to shared history.');
+          },
+        );
+      }
+    } else state.revisions = sharedRevisions;
     listener({
       ...state,
       projects: [...state.projects],
@@ -742,7 +811,12 @@ export function subscribeWorkspace(
       onValue(
         ref(services.database, 'revisions'),
         (snapshot) => {
-          state.revisions = Object.values(snapshot.val() ?? {});
+          privateRevisions.clear();
+          for (const revision of Object.values(
+            snapshot.val() ?? {},
+          ) as Revision[])
+            privateRevisions.set(revision.id, revision);
+          adminRevisionsReady = true;
           emit();
         },
         (cause) => error(cause.message),
@@ -824,7 +898,7 @@ export async function migrateLocalWorkspace(
     (revision) => !revisionIds.has(revision.id),
   );
   if (revisions.length)
-    await saveRevisions(current.revisions, [
+    await saveRevisions(user, current.revisions, [
       ...current.revisions,
       ...revisions,
     ]);

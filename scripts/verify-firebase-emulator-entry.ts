@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { connectDatabaseEmulator, getDatabase, get, ref, set, update, runTransaction } from 'firebase/database';
-import { saveProjects, saveRates, saveTechnicalRevisions, combineProject, loadProjectAssignments, setProjectAssignment, subscribeWorkspace } from '../storage/firebaseWorkspace';
+import { saveProjects, saveRates, saveRevisions, saveTechnicalRevisions, combineProject, loadProjectAssignments, setProjectAssignment, subscribeWorkspace } from '../storage/firebaseWorkspace';
 import type { Project } from '../domain/types';
 import type { WorkspaceUser } from '../domain/auth';
 import { repairProjectFinancials } from '../storage/firebaseWorkspace';
@@ -48,6 +48,7 @@ async function main() {
   };
   let stop = () => {};
   let stopAdmin = () => {};
+  let stopEmployeeB = () => {};
   let stopRateClient = () => {};
   try {
     await rest('.settings/rules', JSON.parse(readFileSync('database.rules.json', 'utf8')));
@@ -127,7 +128,7 @@ async function main() {
       createdAt: '2026-01-02', note: 'Technical checkpoint', total: 999999,
       technicalOnly: true, snapshot: edited,
     };
-    await saveTechnicalRevisions([], [employeeRevision]);
+    await saveTechnicalRevisions(employee, [], [employeeRevision]);
     await waitFor(() => visibleRevisions.some((revision) => revision.id === employeeRevision.id));
     const visibleRevision = visibleRevisions.find((revision) => revision.id === employeeRevision.id)!;
     assert.equal(visibleRevision.total, 0);
@@ -135,6 +136,81 @@ async function main() {
     assert.equal(visibleRevision.snapshot.propertyName, edited.propertyName);
     assert.equal((await get(ref(bossDb, `projectsTechnical/${project.id}/revisionHistory/${employeeRevision.id}/snapshot/rooms/room/items/item/rates`))).exists(), false);
     await assert.rejects(set(ref(empDb, `projectsTechnical/${project.id}/revisionHistory/${employeeRevision.id}/snapshot/rooms/room/items/item/rates`), { standard: 1 }));
+    selectClient(0);
+    await setProjectAssignment(admin, project.id, outsider.uid, true);
+    let employeeBRevisions = [] as import('../domain/types').Revision[];
+    let adminRevisions = [] as import('../domain/types').Revision[];
+    selectClient(2);
+    stopEmployeeB = subscribeWorkspace(outsider, (snapshot) => {
+      employeeBRevisions = snapshot.revisions;
+    }, () => {});
+    selectClient(4);
+    stopAdmin = subscribeWorkspace(admin, (snapshot) => {
+      adminRevisions = snapshot.revisions;
+    }, () => {});
+    await waitFor(() =>
+      employeeBRevisions.some((revision) => revision.id === employeeRevision.id) &&
+      adminRevisions.some((revision) => revision.id === employeeRevision.id),
+    );
+    const employeeBRevision = {
+      ...employeeRevision,
+      id: 'employee-b-revision', number: 2, note: 'Employee B checkpoint',
+      createdBy: outsider.uid, authorName: outsider.displayName,
+    };
+    selectClient(2);
+    await saveTechnicalRevisions(outsider, employeeBRevisions, [
+      ...employeeBRevisions,
+      employeeBRevision,
+    ]);
+    await waitFor(() =>
+      visibleRevisions.some((revision) => revision.id === employeeBRevision.id) &&
+      adminRevisions.some((revision) => revision.id === employeeBRevision.id),
+    );
+    const adminRevision = {
+      ...employeeRevision,
+      id: 'admin-revision', number: 3, note: 'Admin checkpoint',
+      createdBy: admin.uid, authorName: admin.displayName,
+      total: 12345, technicalOnly: false, snapshot: project,
+    };
+    selectClient(0);
+    await saveRevisions(admin, adminRevisions, [...adminRevisions, adminRevision]);
+    await waitFor(() =>
+      visibleRevisions.some((revision) => revision.id === adminRevision.id) &&
+      employeeBRevisions.some((revision) => revision.id === adminRevision.id) &&
+      adminRevisions.some((revision) => revision.id === adminRevision.id),
+    );
+    assert.equal(adminRevisions.find((revision) => revision.id === adminRevision.id)!.total, 12345);
+    assert.equal(visibleRevisions.find((revision) => revision.id === adminRevision.id)!.total, 0);
+    assert.equal(employeeBRevisions.find((revision) => revision.id === adminRevision.id)!.technicalOnly, true);
+    assert.equal((await get(ref(bossDb, `revisions/${adminRevision.id}/snapshot/rooms/0/items/0/rates/standard`))).val(), 100);
+    assert.equal((await get(ref(bossDb, `projectsTechnical/${project.id}/revisionHistory/${adminRevision.id}/snapshot/rooms/room/items/item/rates`))).exists(), false);
+    selectClient(2);
+    await assert.rejects(get(ref(apps[2].database, `revisions/${adminRevision.id}`)));
+    await assert.rejects(get(ref(apps[2].database, `projectsFinancial/${project.id}`)));
+    const { createdBy: _legacyCreator, authorName: _legacyAuthor, ...legacyBase } = adminRevision;
+    const legacyAdminRevision = {
+      ...legacyBase,
+      id: 'legacy-admin-revision', number: 4, note: 'Legacy admin checkpoint',
+    };
+    await set(ref(bossDb, `revisions/${legacyAdminRevision.id}`), legacyAdminRevision);
+    await waitFor(() =>
+      visibleRevisions.some((revision) => revision.id === legacyAdminRevision.id) &&
+      employeeBRevisions.some((revision) => revision.id === legacyAdminRevision.id),
+    );
+    assert.equal((await get(ref(bossDb, `revisions/${legacyAdminRevision.id}`))).exists(), true);
+    assert.equal((await get(ref(bossDb, `projectsTechnical/${project.id}/revisionHistory/${legacyAdminRevision.id}/snapshot/rooms/room/items/item/rates`))).exists(), false);
+    await update(ref(bossDb, `projectsTechnical/${project.id}/revisionHistory/${employeeRevision.id}`), {
+      createdBy: null,
+      authorName: null,
+    });
+    stopEmployeeB();
+    stopEmployeeB = () => {};
+    stopAdmin();
+    stopAdmin = () => {};
+    selectClient(0);
+    await setProjectAssignment(admin, project.id, outsider.uid, false);
+    console.log('PASS: shared project revision history converges across admin and two employees, legacy admin revisions are backfilled, and private financial snapshots remain admin-only');
+    selectClient(1);
     const expanded = structuredClone(edited);
     expanded.floors!.push({ id: 'second-floor', name: 'Second Floor' });
     expanded.rooms.push({ id: 'second-room', name: 'Living Room', floorId: 'second-floor', items: [
@@ -335,6 +411,7 @@ async function main() {
   } finally {
     stop();
     stopAdmin();
+    stopEmployeeB();
     stopRateClient();
     await Promise.all(apps.map(({ app }) => deleteApp(app)));
   }

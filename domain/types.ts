@@ -135,6 +135,8 @@ export interface Revision {
   projectId: string;
   number: number;
   createdAt: string;
+  createdBy?: string;
+  authorName?: string;
   total: number;
   note: string;
   snapshot: Project;

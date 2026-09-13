@@ -101,6 +101,9 @@ import {
   saveRates,
   saveRevisions,
   saveTechnicalRevisions,
+  combineProject,
+  projectFinancial,
+  projectTechnical,
   saveSettings,
   subscribeWorkspace,
   workspaceSignOut,
@@ -435,8 +438,8 @@ function useStore(): Store {
       if (ready)
         queueWrite('revisions', () =>
           currentUser.role === 'admin'
-            ? saveRevisions(previous, next)
-            : saveTechnicalRevisions(previous, next),
+            ? saveRevisions(currentUser, previous, next)
+            : saveTechnicalRevisions(currentUser, previous, next),
         );
     },
     signIn: emailSignIn,
@@ -1758,8 +1761,10 @@ function Builder({ s }: { s: Store }) {
       {
         id: uid(),
         projectId: project.id,
-        number: prior.length + 1,
+        number: Math.max(0, ...prior.map((revision) => revision.number)) + 1,
         createdAt: new Date().toISOString(),
+        createdBy: s.user?.uid,
+        authorName: s.user?.displayName,
         total: tot.grandTotal,
         note,
         snapshot: structuredClone(project),
@@ -3796,7 +3801,10 @@ function Revisions({ s }: { s: Store }) {
     p = s.projects.find((x) => x.id === id),
     revs = s.revisions
       .filter((r) => r.projectId === id)
-      .sort((a, b) => b.number - a.number);
+      .sort(
+        (a, b) =>
+          b.createdAt.localeCompare(a.createdAt) || b.number - a.number,
+      );
   if (!p) return <Navigate to="/projects" />;
   return (
     <Page
@@ -3816,6 +3824,7 @@ function Revisions({ s }: { s: Store }) {
                 <strong>Revision {r.number}</strong>
                 <small>
                   {new Date(r.createdAt).toLocaleString('en-IN')} ·{' '}
+                  {r.authorName || 'Team member'} ·{' '}
                   {r.note || 'No note'}
                 </small>
               </span>
@@ -3825,11 +3834,19 @@ function Revisions({ s }: { s: Store }) {
               <Button
                 variant="outline"
                 onClick={() => {
+                  const restored =
+                    s.canManageFinancials && r.technicalOnly
+                      ? combineProject(
+                          projectTechnical(r.snapshot),
+                          projectFinancial(p),
+                          s.rates,
+                        )
+                      : structuredClone(r.snapshot);
                   s.setProjects(
                     s.projects.map((x) =>
                       x.id === id
                         ? {
-                            ...structuredClone(r.snapshot),
+                            ...restored,
                             updatedAt: new Date().toISOString(),
                           }
                         : x,
