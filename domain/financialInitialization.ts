@@ -28,8 +28,19 @@ export function financialTemplates(
     rates: financial[template.id]?.rates ?? { standard: 0, premium: 0, luxury: 0 },
     subUnits: financial[template.id]?.subUnits ?? [],
   }));
-  return [...saved, ...bundledTemplates.filter((template) =>
-    !Object.values(technical).some((row) => row.name.toLowerCase() === template.name.toLowerCase()),
+  // Recover financial-only records produced by older clients. Stable bundled
+  // IDs make this unambiguous and preserve explicit zero rates.
+  const recovered = bundledTemplates.filter((template) =>
+    !technical[template.id] && Boolean(financial[template.id]?.rates),
+  ).map((template) => ({
+    ...template,
+    rates: financial[template.id]!.rates,
+    subUnits: financial[template.id]?.subUnits ?? [],
+  }));
+  const represented = [...saved, ...recovered];
+  return [...represented, ...bundledTemplates.filter((template) =>
+    !represented.some((row) => row.id === template.id || row.name.toLowerCase() === template.name.toLowerCase())
+    && !Object.values(technical).some((row) => row.name.toLowerCase() === template.name.toLowerCase()),
   )];
 }
 

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { connectDatabaseEmulator, getDatabase, get, ref, set, update, runTransaction } from 'firebase/database';
-import { saveProjects, combineProject, loadProjectAssignments, setProjectAssignment, subscribeWorkspace } from '../storage/firebaseWorkspace';
+import { saveProjects, saveRates, combineProject, loadProjectAssignments, setProjectAssignment, subscribeWorkspace } from '../storage/firebaseWorkspace';
 import type { Project } from '../domain/types';
 import type { WorkspaceUser } from '../domain/auth';
 import { repairProjectFinancials } from '../storage/firebaseWorkspace';
@@ -48,10 +48,54 @@ async function main() {
   };
   let stop = () => {};
   let stopAdmin = () => {};
+  let stopRateClient = () => {};
   try {
     await rest('.settings/rules', JSON.parse(readFileSync('database.rules.json', 'utf8')));
     await rest('users', Object.fromEntries([admin, employee, outsider].map(({ uid, ...profile }) => [uid, profile])));
     const bossDb = selectClient(0);
+    // Reproduce the production shape: persisted money with no technical
+    // sibling. The saved value must load, then the next edit repairs both
+    // paths atomically and reaches a second subscribed admin client.
+    const bundledWardrobe = rateCard.find((row) => row.id === 'template-wardrobe')!;
+    await set(ref(bossDb, `rateCardFinancial/${bundledWardrobe.id}`), {
+      rates: { ...bundledWardrobe.rates, standard: 1450 },
+    });
+    const orphanedRates = financialTemplates(
+      (await get(ref(bossDb, 'rateCardTechnical'))).val() ?? {},
+      (await get(ref(bossDb, 'rateCardFinancial'))).val() ?? {},
+    );
+    assert.equal(orphanedRates.find((row) => row.id === bundledWardrobe.id)!.rates.standard, 1450);
+    const at1000 = orphanedRates.map((row) => row.id === bundledWardrobe.id
+      ? { ...row, rates: { ...row.rates, standard: 1000 } } : row);
+    await saveRates(orphanedRates, at1000);
+    assert.equal((await get(ref(bossDb, `rateCardFinancial/${bundledWardrobe.id}/rates/standard`))).val(), 1000);
+    assert.equal((await get(ref(bossDb, `rateCardTechnical/${bundledWardrobe.id}/id`))).val(), bundledWardrobe.id);
+    const secondAdminDb = selectClient(4);
+    const reloadedRates = financialTemplates(
+      (await get(ref(secondAdminDb, 'rateCardTechnical'))).val() ?? {},
+      (await get(ref(secondAdminDb, 'rateCardFinancial'))).val() ?? {},
+    );
+    assert.equal(reloadedRates.find((row) => row.id === bundledWardrobe.id)!.rates.standard, 1000);
+    let secondClientRate = 0;
+    stopRateClient = subscribeWorkspace(admin, (snapshot) => {
+      secondClientRate = snapshot.rates.find((row) => row.id === bundledWardrobe.id)?.rates.standard ?? 0;
+    }, () => {});
+    const waitFor = async (check: () => boolean) => {
+      for (let i = 0; i < 100 && !check(); i++) await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.ok(check(), 'subscription did not converge');
+    };
+    await waitFor(() => secondClientRate === 1000);
+    selectClient(0);
+    const at900 = at1000.map((row) => row.id === bundledWardrobe.id
+      ? { ...row, rates: { ...row.rates, standard: 900 } } : row);
+    await saveRates(at1000, at900);
+    await waitFor(() => secondClientRate === 900);
+    assert.equal((await get(ref(secondAdminDb, `rateCardFinancial/${bundledWardrobe.id}/rates/standard`))).val(), 900);
+    console.log('PASS: orphaned bundled rate recovered, atomic paired save persisted, reload and second client show current master rate');
+    stopRateClient();
+    stopRateClient = () => {};
+    selectClient(0);
+    await saveRates(at900, at900.filter((row) => row.id !== bundledWardrobe.id));
     await saveProjects(admin, [], [project]);
     const financialBefore = (await get(ref(bossDb, 'projectsFinancial/project'))).val();
     const empDb = selectClient(1);
@@ -61,10 +105,6 @@ async function main() {
     console.log('PASS: reproduced old employee transaction creation denial; unassigned access denied');
     let visible: Project[] = [];
     stop = subscribeWorkspace(employee, (snapshot) => { visible = snapshot.projects; }, () => {});
-    const waitFor = async (check: () => boolean) => {
-      for (let i = 0; i < 100 && !check(); i++) await new Promise((resolve) => setTimeout(resolve, 20));
-      assert.ok(check(), 'subscription did not converge');
-    };
     selectClient(0);
     assert.equal((await loadProjectAssignments(admin, project.id)).find((row) => row.uid === employee.uid)?.assigned, false);
     await setProjectAssignment(admin, project.id, employee.uid, true);
@@ -278,6 +318,7 @@ async function main() {
   } finally {
     stop();
     stopAdmin();
+    stopRateClient();
     await Promise.all(apps.map(({ app }) => deleteApp(app)));
   }
 }

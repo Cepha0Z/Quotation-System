@@ -358,22 +358,34 @@ export async function setProjectAssignment(
   });
 }
 
+export function rateCardUpdates(
+  previous: RateCardItem[],
+  next: RateCardItem[],
+) {
+  const before = new Map(previous.map((rate) => [rate.id, rate]));
+  const fresh = new Map(next.map((rate) => [rate.id, rate]));
+  const changes: JsonRecord = {};
+  // Both paths are one logical template. Writing them atomically also creates
+  // the missing technical sibling when the displayed item came from defaults.
+  for (const id of new Set([...before.keys(), ...fresh.keys()])) {
+    const oldRate = before.get(id);
+    const newRate = fresh.get(id);
+    if (JSON.stringify(oldRate) === JSON.stringify(newRate)) continue;
+    changes[`rateCardTechnical/${id}`] = newRate ? rateTechnical(newRate) : null;
+    changes[`rateCardFinancial/${id}`] = newRate ? rateFinancial(newRate) : null;
+  }
+  return changes;
+}
+
 export async function saveRates(
   previous: RateCardItem[],
   next: RateCardItem[],
 ) {
-  const beforeTechnical = keyed(previous.map(rateTechnical));
-  const nextTechnical = keyed(next.map(rateTechnical));
-  const beforeFinancial = Object.fromEntries(
-    previous.map((rate) => [rate.id, rateFinancial(rate)]),
-  );
-  const nextFinancial = Object.fromEntries(
-    next.map((rate) => [rate.id, rateFinancial(rate)]),
-  );
-  await Promise.all([
-    transactionalMerge('rateCardTechnical', beforeTechnical, nextTechnical),
-    transactionalMerge('rateCardFinancial', beforeFinancial, nextFinancial),
-  ]);
+  const services = getFirebaseServices();
+  if (!services) throw new Error('Firebase is not configured');
+  const changes = rateCardUpdates(previous, next);
+  if (Object.keys(changes).length)
+    await update(ref(services.database), changes);
 }
 
 // The existing admin client fills missing records on load. No backend or

@@ -189,6 +189,7 @@ function useStore(): Store {
     ),
     timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({}),
     pendingWrites = useRef<Record<string, () => Promise<void>>>({}),
+    activeWrites = useRef<Record<string, number>>({}),
     projectRef = useRef<Project[]>([]),
     rateRef = useRef<RateCardItem[]>([]),
     settingsRef = useRef<FirmSettings>(ds),
@@ -205,13 +206,21 @@ function useStore(): Store {
     delete pendingWrites.current[key];
     clearTimeout(timers.current[key]);
     delete timers.current[key];
+    activeWrites.current[key] = (activeWrites.current[key] ?? 0) + 1;
+    const finish = () => {
+      activeWrites.current[key] -= 1;
+      if (!activeWrites.current[key]) delete activeWrites.current[key];
+    };
     try {
       await write();
-      if (!Object.keys(pendingWrites.current).length) setSaveState('saved');
-    } catch {
+      finish();
+      if (!Object.keys(pendingWrites.current).length && !Object.keys(activeWrites.current).length)
+        setSaveState('saved');
+    } catch (cause) {
+      finish();
       setSaveState('error');
       setStorageError(
-        'Firebase could not save these changes. Check your connection or account permissions.',
+        `Firebase could not save these changes. ${cause instanceof Error ? cause.message : 'Check your connection or account permissions.'}`,
       );
     }
   };
@@ -294,16 +303,21 @@ function useStore(): Store {
                 rates: { standard: 0, premium: 0, luxury: 0 },
                 subUnits: [],
               }));
+        const rateWritePending = Boolean(
+          pendingWrites.current.rates || activeWrites.current.rates,
+        );
         projectRef.current = normalized;
-        rateRef.current = mergedRates;
+        if (!rateWritePending) rateRef.current = mergedRates;
         settingsRef.current = normalizeFirmSettings(snapshot.settings);
         revisionRef.current = snapshot.revisions;
         sp(normalized);
-        sr(mergedRates);
+        if (!rateWritePending) sr(mergedRates);
         ss(settingsRef.current);
         sv(snapshot.revisions);
-        setSaveState('saved');
-        setStorageError(null);
+        if (!Object.keys(pendingWrites.current).length && !Object.keys(activeWrites.current).length) {
+          setSaveState('saved');
+          setStorageError(null);
+        }
         setReady(true);
       },
       (message) => {
@@ -391,11 +405,14 @@ function useStore(): Store {
     rates,
     setRates: (v) => {
       if (!currentUser || currentUser.role !== 'admin') return;
-      const previous = snapshotRef.current.rates;
-      rateRef.current = v;
-      sr(v);
+      // Snapshot the displayed edit now so a later subscription callback
+      // cannot change the debounced write's intended before/after values.
+      const previous = structuredClone(rateRef.current);
+      const next = structuredClone(v);
+      rateRef.current = next;
+      sr(next);
       if (ready)
-        queueWrite('rates', () => saveRates(previous, rateRef.current));
+        queueWrite('rates', () => saveRates(previous, next));
     },
     settings,
     setSettings: (v) => {

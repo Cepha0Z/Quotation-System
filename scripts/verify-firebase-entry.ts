@@ -6,8 +6,12 @@ import {
   mergeThreeWay,
   projectFinancial,
   projectTechnical,
+  rateCardUpdates,
 } from '../storage/firebaseWorkspace';
 import type { Project, QuoteItem } from '../domain/types';
+import { financialTemplates } from '../domain/financialInitialization';
+import { rateCard } from '../domain/sample';
+import { itemBaseRate } from '../domain/pricing';
 
 const item: QuoteItem = {
   id: 'item-1',
@@ -92,6 +96,53 @@ assert.equal(employeeView.fees.length, 0);
 assert.equal(adminView.rooms[0].items[0].rateOverride, 175);
 assert.equal(adminView.projectDiscount, 100);
 assert.equal(adminView.fees[0].value, 1000);
+
+const bundledWardrobe = rateCard.find((rate) => rate.id === 'template-wardrobe')!;
+const recoveredRates = financialTemplates({}, {
+  [bundledWardrobe.id]: {
+    rates: { ...bundledWardrobe.rates, standard: 99 },
+    subUnits: [],
+  },
+});
+const recoveredWardrobe = recoveredRates.find((rate) => rate.id === bundledWardrobe.id)!;
+assert.equal(recoveredWardrobe.rates.standard, 99);
+const editedRates = recoveredRates.map((rate) => rate.id === bundledWardrobe.id
+  ? { ...rate, rates: { ...rate.rates, standard: 1000 } }
+  : rate);
+const rateUpdates = rateCardUpdates(recoveredRates, editedRates);
+assert.equal(rateUpdates[`rateCardTechnical/${bundledWardrobe.id}`].id, bundledWardrobe.id);
+assert.equal(rateUpdates[`rateCardFinancial/${bundledWardrobe.id}`].rates.standard, 1000);
+assert.equal(Object.keys(rateUpdates).length, 2);
+
+const linkedTechnical = projectTechnical({
+  ...project,
+  rooms: [{
+    ...project.rooms[0],
+    items: [{ ...item, rateCardId: bundledWardrobe.id, rateSource: 'template', rateOverride: undefined }],
+  }],
+}, 'admin-uid');
+const linkedFinancial = projectFinancial({
+  ...project,
+  rooms: [{
+    ...project.rooms[0],
+    items: [{ ...item, rateCardId: bundledWardrobe.id, rateSource: 'template', rateOverride: undefined }],
+  }],
+});
+const master1000 = combineProject(linkedTechnical, linkedFinancial, editedRates);
+assert.equal(itemBaseRate(master1000.rooms[0].items[0], 'standard'), 1000);
+const at900 = editedRates.map((rate) => rate.id === bundledWardrobe.id
+  ? { ...rate, rates: { ...rate.rates, standard: 900 } }
+  : rate);
+const master900 = combineProject(linkedTechnical, linkedFinancial, at900);
+assert.equal(itemBaseRate(master900.rooms[0].items[0], 'standard'), 900);
+const overriddenFinancial = structuredClone(linkedFinancial);
+overriddenFinancial.rooms['room-1'].items['item-1'].rateOverride = 1350;
+const at800 = at900.map((rate) => rate.id === bundledWardrobe.id
+  ? { ...rate, rates: { ...rate.rates, standard: 800 } }
+  : rate);
+assert.equal(itemBaseRate(combineProject(linkedTechnical, overriddenFinancial, at800).rooms[0].items[0], 'standard'), 1350);
+delete overriddenFinancial.rooms['room-1'].items['item-1'].rateOverride;
+assert.equal(itemBaseRate(combineProject(linkedTechnical, overriddenFinancial, at800).rooms[0].items[0], 'standard'), 800);
 
 const base = {
   rooms: { one: { name: 'Living', notes: '' }, two: { name: 'Kitchen' } },
