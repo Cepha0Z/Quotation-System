@@ -158,7 +158,9 @@ export function combineProject(
       floorId: room.floorId,
       items: ordered<JsonRecord>(room.items, room.itemOrder).map((item) => {
         const money = financial?.rooms?.[room.id]?.items?.[item.id] ?? {};
-        const template = money.rateSource === 'template' ? resolveTemplate(item as QuoteItem, templates) : undefined;
+        // The template reference is the link, including on legacy items that
+        // predate rateSource. itemBaseRate gives explicit overrides precedence.
+        const template = resolveTemplate(item as QuoteItem, templates);
         return {
           ...item,
           enabled: money.enabled ?? true,

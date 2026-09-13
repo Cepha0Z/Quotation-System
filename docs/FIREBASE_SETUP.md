@@ -16,9 +16,9 @@ Creators get their own `userProjects` link atomically with technical project cre
 
 ## Master rates and overrides
 
-New template-backed items store a template reference and financial `rateSource: template`. The admin workspace resolves their rates from the current master rate card whenever projects or rates change. Calculations, previews and exporters receive that resolved project data. Editing the master updates linked items; project snapshots are not themselves master templates.
+An item's template reference links it to the master rate card, including older items without a `rateSource` marker. The admin workspace resolves rates whenever projects or master rates change. Calculations, previews and exporters receive that resolved project data.
 
-An item's explicit `rateOverride` takes precedence, including an intentional zero. **Use master rate** removes that override and explicitly links the item to its template. Legacy financial records without a source marker stay project-specific; the app cannot safely infer whether a historical stored rate was an intentional override. Existing fees and prices are never replaced just because they differ from today's master.
+An explicit `rateOverride` takes precedence, including an intentional zero. **Use master rate** removes that override. Without an override, a resolvable template reference always uses the current master rate; copied project rates and legacy source markers do not pin it. Items with no resolvable template retain their stored rates. Stored financial records and fees are not overwritten by rate resolution.
 
 Bundled template IDs are stable across browsers. Legacy random template IDs may resolve by a unique name/unit match. Unresolvable historical references require admin review rather than guessing a rate.
 
@@ -36,4 +36,4 @@ Run `npx tsc --noEmit`, `npm run test:firebase-security`, `npm run test:excel-ex
 
 ## Local migration
 
-IndexedDB projects are not deleted. An admin on a device containing local data can use **Import local data**. Existing Firebase IDs win and conflicting local projects are skipped. Imported legacy financial values remain project-specific until explicitly linked to the master rate.
+IndexedDB projects are not deleted. An admin on a device containing local data can use **Import local data**. Existing Firebase IDs win and conflicting local projects are skipped. Imported template references follow the master unless an explicit item override exists.

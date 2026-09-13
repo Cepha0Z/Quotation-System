@@ -214,17 +214,27 @@ async function main() {
     const automaticProject = { ...templateProject, id: 'auto-repair-project' };
     await saveProjects(employee, [], [automaticProject]);
     selectClient(0);
+    await repair(automaticProject.id);
+    // Reproduce a pre-marker item with a copied 1450 rate and a legacy ID.
+    await update(ref(bossDb), {
+      [`projectsFinancial/${automaticProject.id}/rooms/room/items/priced-0/rateSource`]: null,
+      [`projectsFinancial/${automaticProject.id}/rooms/room/items/priced-0/rates/standard`]: 1450,
+      [`projectsTechnical/${automaticProject.id}/rooms/room/items/priced-0/rateCardId`]: 'old-browser-random-id',
+      [`projectsFinancial/${templateProject.id}/rooms/room/items/priced-0/rateSource`]: 'project',
+      [`rateCardFinancial/${wardrobe.id}/rates/standard`]: 1450,
+    });
     let adminProjects: Project[] = [];
     const syncErrors: string[] = [];
     stopAdmin = subscribeWorkspace(admin, (snapshot) => { adminProjects = snapshot.projects; }, (error) => syncErrors.push(error));
     await waitFor(() => adminProjects.some((row) => row.id === automaticProject.id && row.fees.length === 3));
     const adminItem = () => adminProjects.find((row) => row.id === templateProject.id)!.rooms[0].items[0];
     const employeeItem = () => adminProjects.find((row) => row.id === automaticProject.id)!.rooms[0].items[0];
-    assert.equal(itemBaseRate(adminItem(), 'standard'), 8888);
-    assert.equal(itemBaseRate(employeeItem(), 'standard'), 8888);
-    await update(ref(bossDb, `rateCardFinancial/${wardrobe.id}/rates`), { standard: 1500 });
-    await waitFor(() => itemBaseRate(adminItem(), 'standard') === 1500 && itemBaseRate(employeeItem(), 'standard') === 1500);
-    assert.equal(itemTotal(employeeItem(), 'standard'), 48000);
+    assert.equal(itemBaseRate(adminItem(), 'standard'), 1450);
+    assert.equal(itemBaseRate(employeeItem(), 'standard'), 1450);
+    await update(ref(bossDb, `rateCardFinancial/${wardrobe.id}/rates`), { standard: 1000 });
+    await waitFor(() => itemBaseRate(adminItem(), 'standard') === 1000 && itemBaseRate(employeeItem(), 'standard') === 1000);
+    assert.equal(itemTotal(employeeItem(), 'standard'), 32000);
+    assert.equal((await get(ref(bossDb, `projectsFinancial/${automaticProject.id}/rooms/room/items/priced-0/rates/standard`))).val(), 1450);
     const verifyExport = async (expectedRate: number, expectedAmount: number) => {
       const output = await createProjectExcelFile(adminProjects.find((row) => row.id === automaticProject.id)!, firmSettings);
       const workbook = X.read(output.bytes, { type: 'array' });
@@ -233,16 +243,32 @@ async function main() {
       assert.equal(wardrobeRow[5], expectedRate);
       assert.equal(wardrobeRow[6], expectedAmount);
     };
-    await verifyExport(1500, 48000);
+    await verifyExport(1000, 32000);
     const beforeOverride = adminProjects.find((row) => row.id === automaticProject.id)!;
     const afterOverride = structuredClone(beforeOverride);
     afterOverride.rooms[0].items[0].rateOverride = 1350;
     afterOverride.fees[0].value = 99;
     await saveProjects(admin, [beforeOverride], [afterOverride]);
-    await update(ref(bossDb, `rateCardFinancial/${wardrobe.id}/rates`), { standard: 2000 });
-    await waitFor(() => itemBaseRate(adminItem(), 'standard') === 2000 && itemBaseRate(employeeItem(), 'standard') === 1350);
+    await waitFor(() => itemBaseRate(employeeItem(), 'standard') === 1350);
+    await update(ref(bossDb, `rateCardFinancial/${wardrobe.id}/rates`), { standard: 900 });
+    await waitFor(() => itemBaseRate(adminItem(), 'standard') === 900 && itemBaseRate(employeeItem(), 'standard') === 1350);
     assert.equal(itemTotal(employeeItem(), 'standard'), 43200);
     await verifyExport(1350, 43200);
+    // Persist the exact patch used by the editor's Use master rate button.
+    const beforeReset = adminProjects.find((row) => row.id === automaticProject.id)!;
+    const reset = structuredClone(beforeReset);
+    Object.assign(reset.rooms[0].items[0], { rateSource: 'template', rateOverride: undefined });
+    await saveProjects(admin, [beforeReset], [reset]);
+    await waitFor(() => itemBaseRate(employeeItem(), 'standard') === 900);
+    await verifyExport(900, 28800);
+    assert.equal((await get(ref(bossDb, `projectsFinancial/${automaticProject.id}/rooms/room/items/priced-0/rateOverride`))).exists(), false);
+    const beforeZero = adminProjects.find((row) => row.id === automaticProject.id)!;
+    const zero = structuredClone(beforeZero);
+    zero.rooms[0].items[0].rateOverride = 0;
+    await saveProjects(admin, [beforeZero], [zero]);
+    await update(ref(bossDb, `rateCardFinancial/${wardrobe.id}/rates`), { standard: 800 });
+    await waitFor(() => itemBaseRate(adminItem(), 'standard') === 800 && itemBaseRate(employeeItem(), 'standard') === 0);
+    await verifyExport(0, 0);
     assert.equal(adminProjects.find((row) => row.id === automaticProject.id)!.fees[0].value, 99);
     assert.equal((await get(ref(adminSecondDb, `projectsFinancial/${automaticProject.id}/fees/design/value`))).val(), 99);
     await assert.rejects(get(ref(empDb, `projectsFinancial/${automaticProject.id}`)));
