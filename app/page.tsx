@@ -2499,13 +2499,51 @@ function Num({
   value: number;
   onChange: (n: number) => void;
 }) {
+  const [draft, setDraft] = useState(String(value));
+  const [focused, setFocused] = useState(false);
+
+  useEffect(() => {
+    if (!focused) setDraft(String(value));
+  }, [focused, value]);
+
   return (
     <Input
       type="number"
       min="0"
       step="any"
-      value={value}
-      onChange={(e) => onChange(Number(e.target.value) || 0)}
+      value={focused ? draft : value}
+      onFocus={(event) => {
+        setFocused(true);
+        setDraft(String(value));
+        if (value === 0) {
+          const input = event.currentTarget;
+          window.requestAnimationFrame(() => input.select());
+        }
+      }}
+      onPointerUp={(event) => {
+        if (Number(event.currentTarget.value) !== 0) return;
+        event.preventDefault();
+        event.currentTarget.select();
+      }}
+      onChange={(event) => {
+        const next = event.target.value;
+        setDraft(next);
+        if (next === '') {
+          onChange(0);
+          return;
+        }
+        const parsed = Number(next);
+        if (Number.isFinite(parsed)) onChange(parsed);
+      }}
+      onBlur={() => {
+        setFocused(false);
+        if (draft === '' || !Number.isFinite(Number(draft))) {
+          setDraft('0');
+          onChange(0);
+          return;
+        }
+        setDraft(String(Number(draft)));
+      }}
     />
   );
 }
@@ -2793,7 +2831,7 @@ function Item({
             </label>
             <label>
               Description
-              <Input
+              <textarea
                 value={item.description}
                 placeholder="Add description"
                 onChange={(e) => patch({ description: e.target.value })}
@@ -3526,7 +3564,20 @@ function RateCard({ s }: { s: Store }) {
             {(['standard', 'premium', 'luxury'] as Tier[]).map((t) => (
               <label key={t}>
                 {tl(t)}
-                <Input type="number" name={t} defaultValue={e.rates[t]} />
+                <Input
+                  type="number"
+                  name={t}
+                  defaultValue={e.rates[t]}
+                  onFocus={(event) => {
+                    if (Number(event.currentTarget.value) === 0)
+                      event.currentTarget.select();
+                  }}
+                  onPointerUp={(event) => {
+                    if (Number(event.currentTarget.value) !== 0) return;
+                    event.preventDefault();
+                    event.currentTarget.select();
+                  }}
+                />
               </label>
             ))}
             <div className="actions">
