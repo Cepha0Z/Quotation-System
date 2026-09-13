@@ -92,6 +92,8 @@ import {
   emailSignIn,
   emailSignUp,
   loadLocalMigrationData,
+  loadProjectAssignments,
+  setProjectAssignment,
   migrateLocalWorkspace,
   observeAuth,
   saveProjects,
@@ -1618,6 +1620,56 @@ async function exportQuotationPdf(project: Project) {
   const data = pdf.output('datauristring').split(',')[1];
   await shareNativeFile(filename, data, 'application/pdf');
 }
+function ProjectAssignments({ user, projectId, close }: {
+  user: WorkspaceUser; projectId: string; close: () => void;
+}) {
+  const [employees, setEmployees] = useState<Awaited<ReturnType<typeof loadProjectAssignments>> | null>(null);
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void loadProjectAssignments(user, projectId).then((rows) => {
+      if (!active) return;
+      setEmployees(rows);
+      setSelected(Object.fromEntries(rows.map((row) => [row.uid, row.assigned])));
+    }).catch(() => {
+      if (active) setError('Could not load employees. Check your connection and published database rules.');
+    });
+    return () => { active = false; };
+  }, [user.uid, projectId]);
+  return <Modal title="Assign employees" close={() => { if (!saving) close(); }}
+    subtitle="Assigned employees can edit technical details only. Financial data remains restricted.">
+    {error && <p role="alert">{error}</p>}
+    {!employees && !error && <p role="status">Loading employees…</p>}
+    {employees?.length === 0 && <p>Employees appear here after signing in to the app once.</p>}
+    <div className="form-grid single-column">
+      {employees?.map((employee) => <label key={employee.uid} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <input type="checkbox" style={{ width: 20, height: 20 }} disabled={saving}
+          checked={selected[employee.uid] ?? false}
+          onChange={(event) => setSelected((current) => ({ ...current, [employee.uid]: event.target.checked }))} />
+        <span>{employee.displayName} — {employee.email}</span>
+      </label>)}
+    </div>
+    <div className="actions">
+      <Button variant="outline" disabled={saving} onClick={close}>Cancel</Button>
+      <Button disabled={!employees || saving} onClick={async () => {
+        setSaving(true);
+        setError('');
+        try {
+          for (const employee of employees ?? []) {
+            if (employee.needsRepair || selected[employee.uid] !== employee.assigned)
+              await setProjectAssignment(user, projectId, employee.uid, selected[employee.uid]);
+          }
+          close();
+        } catch {
+          setError('Could not save assignments. Please retry; financial access has not changed.');
+        } finally { setSaving(false); }
+      }}>{saving ? 'Saving…' : 'Save assignments'}</Button>
+    </div>
+  </Modal>;
+}
+
 function Builder({ s }: { s: Store }) {
   const { id } = useParams(),
     go = useNavigate(),
@@ -1627,6 +1679,7 @@ function Builder({ s }: { s: Store }) {
     [itemModal, setItemModal] = useState(false),
     [compare, setCompare] = useState(false),
     [projectActions, setProjectActions] = useState(false),
+    [assignmentModal, setAssignmentModal] = useState(false),
     [renameModal, setRenameModal] = useState(false),
     [renameValue, setRenameValue] = useState(''),
     [deleteProject, setDeleteProject] = useState(false),
@@ -1772,6 +1825,12 @@ function Builder({ s }: { s: Store }) {
               <div className="context-menu project-menu">
                 {s.canManageFinancials && (
                   <>
+                    <button onClick={() => {
+                      setProjectActions(false);
+                      setAssignmentModal(true);
+                    }}>
+                      <BriefcaseBusiness /> Assign employees
+                    </button>
                     <button
                       onClick={() => {
                         setProjectActions(false);
@@ -2722,6 +2781,9 @@ function Builder({ s }: { s: Store }) {
             </div>
           </form>
         </Modal>
+      )}
+      {s.canManageFinancials && assignmentModal && s.user && (
+        <ProjectAssignments user={s.user} projectId={p.id} close={() => setAssignmentModal(false)} />
       )}
       {s.canManageFinancials && revisionModal && (
         <Modal

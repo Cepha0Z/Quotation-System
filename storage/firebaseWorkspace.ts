@@ -281,16 +281,24 @@ export async function saveProjects(
       project,
       before ? undefined : user.uid,
     );
+    if (!before) {
+      // Transactions require read permission, which a new employee project
+      // deliberately does not have yet. Create the document and discovery
+      // index atomically; the rules validate ownership in the resulting tree.
+      const creation: JsonRecord = {
+        [`projectsTechnical/${project.id}`]: nextTechnical,
+        [`userProjects/${user.uid}/${project.id}`]: true,
+      };
+      if (user.role === 'admin')
+        creation[`projectsFinancial/${project.id}`] = projectFinancial(project);
+      await update(ref(services.database), creation);
+      continue;
+    }
     await transactionalMerge(
       `projectsTechnical/${project.id}`,
       beforeTechnical,
       nextTechnical,
     );
-    if (!before)
-      await set(
-        ref(services.database, `userProjects/${user.uid}/${project.id}`),
-        true,
-      );
     if (user.role === 'admin')
       await transactionalMerge(
         `projectsFinancial/${project.id}`,
@@ -308,6 +316,37 @@ export async function saveProjects(
       ]);
     }
   }
+}
+
+export async function loadProjectAssignments(user: WorkspaceUser, projectId: string) {
+  const services = getFirebaseServices();
+  if (!services || user.role !== 'admin') throw new Error('Administrator access required');
+  const [profiles, members] = await Promise.all([
+    get(ref(services.database, 'users')),
+    get(ref(services.database, `projectMembers/${projectId}`)),
+  ]);
+  const employees = Object.entries(profiles.val() ?? {})
+    .filter(([, profile]) => (profile as WorkspaceUser).role === 'employee')
+    .map(([uid, profile]) => ({ ...(profile as WorkspaceUser), uid }));
+  return Promise.all(employees.map(async (employee) => {
+    const indexed = await get(ref(services.database, `userProjects/${employee.uid}/${projectId}`));
+    const indexedAccess = indexed.val() === true;
+    const memberAccess = members.child(employee.uid).val() === true;
+    return { ...employee, assigned: indexedAccess || memberAccess, needsRepair: indexedAccess !== memberAccess };
+  }));
+}
+
+export async function setProjectAssignment(
+  user: WorkspaceUser, projectId: string, employeeId: string, assigned: boolean,
+) {
+  const services = getFirebaseServices();
+  if (!services || user.role !== 'admin') throw new Error('Administrator access required');
+  // Both the permission map and the employee's discovery index must agree.
+  // Write only this member, so another admin's unrelated assignments survive.
+  await update(ref(services.database), {
+    [`projectMembers/${projectId}/${employeeId}`]: assigned ? true : null,
+    [`userProjects/${employeeId}/${projectId}`]: assigned ? true : null,
+  });
 }
 
 export async function saveRates(
@@ -461,7 +500,12 @@ export function subscribeWorkspace(
           employeePendingProjects.delete(projectId);
           emit();
         },
-        (cause) => error(cause.message),
+        (cause) => {
+          technical.delete(projectId);
+          employeePendingProjects.delete(projectId);
+          emit();
+          error(cause.message);
+        },
       ),
     ];
     if (user.role === 'admin')
@@ -522,6 +566,7 @@ export function subscribeWorkspace(
             if (ids.includes(id)) continue;
             unsubs.forEach((unsubscribe) => unsubscribe());
             projectUnsubscribers.delete(id);
+            employeePendingProjects.delete(id);
             technical.delete(id);
             financial.delete(id);
           }

@@ -24,7 +24,17 @@ Publish `database.rules.json` to the Realtime Database Rules tab before producti
 
 ## Project access
 
-Project creators receive their own `/userProjects/{uid}/{projectId}: true` link automatically. To assign an existing project to another employee, add the same link for that employee in Realtime Database. Removing the link removes their access.
+Project creators receive their own `/userProjects/{uid}/{projectId}: true` link atomically with project creation. Employee creation does not require reading an unassigned project.
+
+As an admin, open the project's Builder → project actions (three dots) → **Assign employees**. Select employees and save. Employees appear after they have signed in at least once and created their app profile. Assignment grants technical access only; it never grants financial access.
+
+Assignments update both `/userProjects/{uid}/{projectId}` (discovery) and `/projectMembers/{projectId}/{uid}` (membership) in one atomic write. Removing an assignment deletes both links. If maintaining assignments manually, always update/remove both links. A legacy membership-only assignment is not discoverable by the employee; opening the dialog and saving repairs inconsistent links for listed employees.
+
+Publish the updated rules together with the application update: the rules permit an employee's own creation link only when the project is also newly created in that atomic write. Admin-only user-directory reads support the assignment picker. No financial permissions have changed.
+
+## Local permission regression tests
+
+`npm run test:firebase-security` checks serialization, financial separation and merge behavior. For actual Firebase rules enforcement, start a Realtime Database emulator at `127.0.0.1:9000`, then run `node scripts/verify-firebase-emulator.mjs`. The latter loads the repository rules into a unique `demo-boq-*` namespace and exercises production persistence functions with simulated admin, employee, unrelated-user and independent-client sessions. It never uses production configuration or accounts.
 
 ## Local migration
 
