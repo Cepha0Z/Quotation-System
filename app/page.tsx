@@ -100,6 +100,7 @@ import {
   saveProjects,
   saveRates,
   saveRevisions,
+  saveTechnicalRevisions,
   saveSettings,
   subscribeWorkspace,
   workspaceSignOut,
@@ -426,12 +427,16 @@ function useStore(): Store {
     },
     revisions,
     setRevisions: (v) => {
-      if (!currentUser || currentUser.role !== 'admin') return;
-      revisionRef.current = v;
-      sv(v);
+      if (!currentUser) return;
+      const previous = structuredClone(revisionRef.current);
+      const next = structuredClone(v);
+      revisionRef.current = next;
+      sv(next);
       if (ready)
         queueWrite('revisions', () =>
-          saveRevisions(snapshotRef.current.revisions, revisionRef.current),
+          currentUser.role === 'admin'
+            ? saveRevisions(previous, next)
+            : saveTechnicalRevisions(previous, next),
         );
     },
     signIn: emailSignIn,
@@ -568,13 +573,7 @@ function Shell({ s }: { s: Store }) {
           />
           <Route
             path="/projects/:id/revisions"
-            element={
-              s.canManageFinancials ? (
-                <Revisions s={s} />
-              ) : (
-                <Navigate to="/projects" />
-              )
-            }
+            element={<Revisions s={s} />}
           />
           <Route
             path="/rate-card"
@@ -1764,6 +1763,7 @@ function Builder({ s }: { s: Store }) {
         total: tot.grandTotal,
         note,
         snapshot: structuredClone(project),
+        technicalOnly: !s.canManageFinancials,
       },
     ]);
     setRevisionModal(false);
@@ -1834,10 +1834,6 @@ function Builder({ s }: { s: Store }) {
                       <BarChart3 />
                       Compare tiers
                     </button>
-                    <button onClick={() => go(`/projects/${id}/revisions`)}>
-                      <FileClock />
-                      Revision history
-                    </button>
                     <button onClick={() => go(`/projects/${id}/preview`)}>
                       <ReceiptText />
                       Quotation preview
@@ -1871,6 +1867,24 @@ function Builder({ s }: { s: Store }) {
                 >
                   <Copy />
                   Duplicate project
+                </button>
+                <button
+                  onClick={() => {
+                    setProjectActions(false);
+                    go(`/projects/${id}/revisions`);
+                  }}
+                >
+                  <FileClock />
+                  Revision history
+                </button>
+                <button
+                  onClick={() => {
+                    setProjectActions(false);
+                    setRevisionModal(true);
+                  }}
+                >
+                  <Save />
+                  Save revision
                 </button>
                 {s.canManageFinancials && (
                   <>
@@ -2779,7 +2793,7 @@ function Builder({ s }: { s: Store }) {
       {s.canManageFinancials && assignmentModal && s.user && (
         <ProjectAssignments user={s.user} projectId={p.id} close={() => setAssignmentModal(false)} />
       )}
-      {s.canManageFinancials && revisionModal && (
+      {revisionModal && (
         <Modal
           title="Save revision"
           className="save-revision-modal"
@@ -3805,7 +3819,9 @@ function Revisions({ s }: { s: Store }) {
                   {r.note || 'No note'}
                 </small>
               </span>
-              <strong>{inr(r.total)}</strong>
+              {s.canManageFinancials && !r.technicalOnly && (
+                <strong>{inr(r.total)}</strong>
+              )}
               <Button
                 variant="outline"
                 onClick={() => {

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { connectDatabaseEmulator, getDatabase, get, ref, set, update, runTransaction } from 'firebase/database';
-import { saveProjects, saveRates, combineProject, loadProjectAssignments, setProjectAssignment, subscribeWorkspace } from '../storage/firebaseWorkspace';
+import { saveProjects, saveRates, saveTechnicalRevisions, combineProject, loadProjectAssignments, setProjectAssignment, subscribeWorkspace } from '../storage/firebaseWorkspace';
 import type { Project } from '../domain/types';
 import type { WorkspaceUser } from '../domain/auth';
 import { repairProjectFinancials } from '../storage/firebaseWorkspace';
@@ -104,7 +104,11 @@ async function main() {
     await assert.rejects(runTransaction(ref(empDb, 'projectsTechnical/old-create'), () => ({ id: 'old-create', createdBy: employee.uid })));
     console.log('PASS: reproduced old employee transaction creation denial; unassigned access denied');
     let visible: Project[] = [];
-    stop = subscribeWorkspace(employee, (snapshot) => { visible = snapshot.projects; }, () => {});
+    let visibleRevisions = [] as import('../domain/types').Revision[];
+    stop = subscribeWorkspace(employee, (snapshot) => {
+      visible = snapshot.projects;
+      visibleRevisions = snapshot.revisions;
+    }, () => {});
     selectClient(0);
     assert.equal((await loadProjectAssignments(admin, project.id)).find((row) => row.uid === employee.uid)?.assigned, false);
     await setProjectAssignment(admin, project.id, employee.uid, true);
@@ -118,6 +122,19 @@ async function main() {
     await saveProjects(employee, [before], [edited]);
     assert.equal((await get(ref(bossDb, 'projectsTechnical/project/rooms/room/items/item/quantity'))).val(), 4);
     assert.deepEqual((await get(ref(bossDb, 'projectsFinancial/project'))).val(), financialBefore);
+    const employeeRevision = {
+      id: 'employee-revision', projectId: project.id, number: 1,
+      createdAt: '2026-01-02', note: 'Technical checkpoint', total: 999999,
+      technicalOnly: true, snapshot: edited,
+    };
+    await saveTechnicalRevisions([], [employeeRevision]);
+    await waitFor(() => visibleRevisions.some((revision) => revision.id === employeeRevision.id));
+    const visibleRevision = visibleRevisions.find((revision) => revision.id === employeeRevision.id)!;
+    assert.equal(visibleRevision.total, 0);
+    assert.equal(visibleRevision.technicalOnly, true);
+    assert.equal(visibleRevision.snapshot.propertyName, edited.propertyName);
+    assert.equal((await get(ref(bossDb, `projectsTechnical/${project.id}/revisionHistory/${employeeRevision.id}/snapshot/rooms/room/items/item/rates`))).exists(), false);
+    await assert.rejects(set(ref(empDb, `projectsTechnical/${project.id}/revisionHistory/${employeeRevision.id}/snapshot/rooms/room/items/item/rates`), { standard: 1 }));
     const expanded = structuredClone(edited);
     expanded.floors!.push({ id: 'second-floor', name: 'Second Floor' });
     expanded.rooms.push({ id: 'second-room', name: 'Living Room', floorId: 'second-floor', items: [

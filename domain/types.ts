@@ -138,4 +138,5 @@ export interface Revision {
   total: number;
   note: string;
   snapshot: Project;
+  technicalOnly?: boolean;
 }

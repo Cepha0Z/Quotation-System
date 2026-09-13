@@ -91,6 +91,74 @@
             "$other": { ".validate": false }
           }
         },
+        "revisionHistory": {
+          "$revisionId": {
+            ".validate": "newData.child('id').val() === $revisionId && newData.child('projectId').val() === $projectId && newData.child('number').isNumber() && newData.child('createdAt').isString() && newData.child('note').isString()",
+            "id": { ".validate": true },
+            "projectId": { ".validate": true },
+            "number": { ".validate": true },
+            "createdAt": { ".validate": true },
+            "note": { ".validate": true },
+            "snapshot": {
+              ".validate": "newData.child('id').val() === $projectId",
+              "id": { ".validate": true },
+              "clientName": { ".validate": true },
+              "propertyName": { ".validate": true },
+              "layout": { ".validate": true },
+              "carpetArea": { ".validate": true },
+              "status": { ".validate": true },
+              "createdAt": { ".validate": true },
+              "updatedAt": { ".validate": true },
+              "propertyType": { ".validate": true },
+              "location": { ".validate": true },
+              "notes": { ".validate": true },
+              "floorOrder": { ".validate": true },
+              "floors": {
+                "$floorId": {
+                  ".validate": "newData.child('id').val() === $floorId && newData.child('name').isString()",
+                  "id": { ".validate": true },
+                  "name": { ".validate": true },
+                  "$other": { ".validate": false }
+                }
+              },
+              "roomOrder": { ".validate": true },
+              "rooms": {
+                "$roomId": {
+                  ".validate": "newData.child('id').val() === $roomId && newData.child('name').isString()",
+                  "id": { ".validate": true },
+                  "name": { ".validate": true },
+                  "floorId": { ".validate": true },
+                  "itemOrder": { ".validate": true },
+                  "items": {
+                    "$itemId": {
+                      ".validate": "newData.child('id').val() === $itemId && newData.child('name').isString()",
+                      "id": { ".validate": true },
+                      "rateCardId": { ".validate": true },
+                      "name": { ".validate": true },
+                      "description": { ".validate": true },
+                      "measurementType": { ".validate": true },
+                      "quantity": { ".validate": true },
+                      "length": { ".validate": true },
+                      "width": { ".validate": true },
+                      "height": { ".validate": true },
+                      "notes": { ".validate": true },
+                      "workType": { ".validate": true },
+                      "unit": { ".validate": true },
+                      "customUnit": { ".validate": true },
+                      "dimensionUnit": { ".validate": true },
+                      "hsnCode": { ".validate": true },
+                      "measureMode": { ".validate": true },
+                      "$other": { ".validate": false }
+                    }
+                  },
+                  "$other": { ".validate": false }
+                }
+              },
+              "$other": { ".validate": false }
+            },
+            "$other": { ".validate": false }
+          }
+        },
         "$other": { ".validate": false }
       }
     },

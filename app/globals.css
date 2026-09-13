@@ -5115,6 +5115,21 @@ body {
   .builder-head {
     min-height: auto;
     padding-block: 14px;
+    padding-right: calc(76px + var(--safe-right));
+    position: relative;
+  }
+  .builder-head .builder-actions {
+    position: absolute;
+    top: 14px;
+    right: calc(16px + var(--safe-right));
+    display: block;
+    width: 44px;
+  }
+  .builder-head .save-revision {
+    display: none;
+  }
+  .builder-head .project-actions-wrap {
+    width: 44px;
   }
   .builder-head h1 {
     font-size: 26px;

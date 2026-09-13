@@ -145,6 +145,30 @@ export function projectFinancial(project: Project) {
   });
 }
 
+function revisionTechnical(revision: Revision) {
+  return clean({
+    id: revision.id,
+    projectId: revision.projectId,
+    number: revision.number,
+    createdAt: revision.createdAt,
+    note: revision.note,
+    snapshot: projectTechnical(revision.snapshot),
+  });
+}
+
+function combineTechnicalRevision(revision: JsonRecord): Revision {
+  return {
+    id: revision.id,
+    projectId: revision.projectId,
+    number: revision.number,
+    createdAt: revision.createdAt,
+    note: revision.note ?? '',
+    total: 0,
+    technicalOnly: true,
+    snapshot: combineProject(revision.snapshot),
+  };
+}
+
 export function combineProject(
   technical: JsonRecord,
   financial?: JsonRecord,
@@ -415,6 +439,33 @@ export async function saveRevisions(
   await transactionalMerge('revisions', keyed(previous), keyed(revisions));
 }
 
+export async function saveTechnicalRevisions(
+  previous: Revision[],
+  revisions: Revision[],
+) {
+  const projectIds = new Set([
+    ...previous.map((revision) => revision.projectId),
+    ...revisions.map((revision) => revision.projectId),
+  ]);
+  for (const projectId of projectIds) {
+    const before = keyed(
+      previous
+        .filter((revision) => revision.projectId === projectId)
+        .map(revisionTechnical),
+    );
+    const next = keyed(
+      revisions
+        .filter((revision) => revision.projectId === projectId)
+        .map(revisionTechnical),
+    );
+    await transactionalMerge(
+      `projectsTechnical/${projectId}/revisionHistory`,
+      before,
+      next,
+    );
+  }
+}
+
 export async function deleteProject(user: WorkspaceUser, projectId: string) {
   const services = getFirebaseServices();
   if (!services) throw new Error('Firebase is not configured');
@@ -536,6 +587,14 @@ export function subscribeWorkspace(
         return combineProject(value, initialized, state.rates);
       })
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    if (user.role === 'employee')
+      state.revisions = [...technical.values()].flatMap((project) =>
+        Object.values(
+          (project.revisionHistory ?? {}) as Record<string, JsonRecord>,
+        ).map(
+          combineTechnicalRevision,
+        ),
+      );
     listener({
       ...state,
       projects: [...state.projects],
