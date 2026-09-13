@@ -216,6 +216,135 @@ body {
   font-family: Inter, system-ui, sans-serif;
   font-feature-settings: 'tnum' 1;
 }
+
+.auth-screen,
+.firebase-config-error {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+  background:
+    radial-gradient(circle at 20% 15%, rgba(16, 60, 52, 0.14), transparent 34%),
+    var(--background);
+}
+.auth-card,
+.firebase-config-error {
+  width: min(460px, 100%);
+  padding: clamp(1.5rem, 5vw, 2.5rem);
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  box-shadow: 0 24px 60px rgba(11, 48, 42, 0.12);
+}
+.auth-brand {
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+  margin-bottom: 2rem;
+  letter-spacing: 0.12em;
+  font-weight: 800;
+}
+.auth-brand > b {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--primary);
+  color: #fff;
+}
+.auth-brand span,
+.auth-brand small {
+  display: block;
+}
+.auth-brand small,
+.auth-card > small,
+.auth-note {
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+  letter-spacing: 0.09em;
+}
+.auth-card h1,
+.firebase-config-error h1 {
+  margin: 0.35rem 0 0.5rem;
+  font-family: Georgia, serif;
+  font-size: clamp(2rem, 8vw, 2.8rem);
+}
+.auth-card > p,
+.firebase-config-error p {
+  color: var(--muted-foreground);
+  line-height: 1.55;
+}
+.auth-card form {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+.auth-card form label {
+  display: grid;
+  gap: 0.45rem;
+  font-weight: 700;
+}
+.auth-error {
+  padding: 0.75rem;
+  border-radius: 9px;
+  background: #f8e9e7;
+  color: #8e312c;
+  font-size: 0.88rem;
+}
+.auth-switch {
+  width: 100%;
+  margin-top: 1.2rem;
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  font: inherit;
+  font-weight: 750;
+}
+.auth-note {
+  display: block;
+  margin-top: 0.9rem;
+  text-align: center;
+  letter-spacing: 0;
+  line-height: 1.45;
+}
+.firebase-config-error code {
+  padding: 0.15rem 0.35rem;
+  background: var(--muted);
+  border-radius: 5px;
+}
+.firebase-config-error small {
+  display: block;
+  overflow-wrap: anywhere;
+  color: #8e312c;
+}
+.profile-signout {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  opacity: 0.75;
+}
+.profile-signout svg {
+  width: 19px;
+}
+.migration-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1.25rem;
+  background: #eef4f1;
+  border-bottom: 1px solid #cadbd5;
+  color: var(--primary);
+  font-size: 0.9rem;
+}
+@media (max-width: 650px) {
+  .migration-banner {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
 button,
 input,
 select,

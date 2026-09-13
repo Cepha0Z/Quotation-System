@@ -86,13 +86,23 @@ import type {
   Room,
   Tier,
 } from '@/domain/types';
+import type { WorkspaceUser } from '@/domain/auth';
+import { firebaseConfigured, missingFirebaseEnvironment } from '@/lib/firebase';
 import {
-  migrateLegacyStorage,
-  projectRepository,
-  rateCardRepository,
-  revisionRepository,
-  settingsRepository,
-} from '@/storage/repositories';
+  emailSignIn,
+  emailSignUp,
+  loadLocalMigrationData,
+  migrateLocalWorkspace,
+  observeAuth,
+  saveProjects,
+  saveRates,
+  saveRevisions,
+  saveSettings,
+  subscribeWorkspace,
+  workspaceSignOut,
+  type LocalMigrationData,
+  type WorkspaceSnapshot,
+} from '@/storage/firebaseWorkspace';
 const uid = () => crypto.randomUUID(),
   tl = (t: Tier) => t[0].toUpperCase() + t.slice(1);
 
@@ -139,6 +149,9 @@ const itemImage = (name: string) => {
   return '/item-images/custom-joinery.png';
 };
 type Store = {
+  authReady: boolean;
+  user: WorkspaceUser | null;
+  canManageFinancials: boolean;
   hydrated: boolean;
   saveState: 'loading' | 'saving' | 'saved' | 'error';
   storageError: string | null;
@@ -152,18 +165,36 @@ type Store = {
   setSettings: (v: FirmSettings) => void;
   revisions: Revision[];
   setRevisions: (v: Revision[]) => void;
+  signIn: (email: string, password: string) => Promise<void>;
+  signUp: (email: string, password: string) => Promise<void>;
+  signOut: () => Promise<void>;
+  localMigration: LocalMigrationData | null;
+  migrateLocal: () => Promise<number>;
 };
 function useStore(): Store {
-  const [projects, sp] = useState<Project[]>([]),
+  const [user, setUser] = useState<WorkspaceUser | null>(null),
+    [authReady, setAuthReady] = useState(false),
+    [projects, sp] = useState<Project[]>([]),
     [rates, sr] = useState<RateCardItem[]>([]),
     [settings, ss] = useState(ds),
     [revisions, sv] = useState<Revision[]>([]),
     [ready, setReady] = useState(false),
     [saveState, setSaveState] = useState<Store['saveState']>('loading'),
     [storageError, setStorageError] = useState<string | null>(null),
+    [localMigration, setLocalMigration] = useState<LocalMigrationData | null>(
+      null,
+    ),
     timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({}),
     pendingWrites = useRef<Record<string, () => Promise<void>>>({}),
-    inFlightWrites = useRef(0);
+    projectRef = useRef<Project[]>([]),
+    rateRef = useRef<RateCardItem[]>([]),
+    settingsRef = useRef<FirmSettings>(ds),
+    revisionRef = useRef<Revision[]>([]),
+    snapshotRef = useRef<WorkspaceSnapshot>({
+      projects: [],
+      rates: [],
+      revisions: [],
+    });
 
   const flushWrite = async (key: string) => {
     const write = pendingWrites.current[key];
@@ -171,17 +202,14 @@ function useStore(): Store {
     delete pendingWrites.current[key];
     clearTimeout(timers.current[key]);
     delete timers.current[key];
-    inFlightWrites.current += 1;
     try {
       await write();
       if (!Object.keys(pendingWrites.current).length) setSaveState('saved');
     } catch {
       setSaveState('error');
       setStorageError(
-        'Changes are cached on this device, but could not be synced to the shared workspace.',
+        'Firebase could not save these changes. Check your connection or account permissions.',
       );
-    } finally {
-      inFlightWrites.current -= 1;
     }
   };
 
@@ -193,182 +221,214 @@ function useStore(): Store {
   };
 
   useEffect(() => {
+    if (!firebaseConfigured) {
+      setAuthReady(true);
+      return;
+    }
+    return observeAuth(
+      (nextUser) => {
+        setUser(nextUser);
+        setAuthReady(true);
+        setReady(false);
+        setStorageError(null);
+      },
+      (message) => {
+        setStorageError(message);
+        setAuthReady(true);
+      },
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!user) {
+      sp([]);
+      sr([]);
+      sv([]);
+      ss(ds);
+      setReady(false);
+      return;
+    }
     let active = true;
-    void (async () => {
-      try {
-        await migrateLegacyStorage();
-        const [savedProjects, savedRates, savedSettings, savedRevisions] =
-          await Promise.all([
-            projectRepository.list(),
-            rateCardRepository.list(),
-            settingsRepository.get(),
-            revisionRepository.list(),
-          ]);
-        const initialProjects = savedProjects.map(normalizeProject);
-        const initialRates = savedRates.length
-          ? [
-              ...savedRates,
-              ...dr.filter(
-                (template) =>
-                  !savedRates.some(
-                    (saved) =>
-                      saved.name.toLowerCase() === template.name.toLowerCase(),
-                  ),
-              ),
-            ]
-          : dr;
-        const initialSettings = normalizeFirmSettings(savedSettings);
-        const seedWrites: Promise<void>[] = [];
-        if (JSON.stringify(savedProjects) !== JSON.stringify(initialProjects))
-          seedWrites.push(projectRepository.saveAll(initialProjects));
-        if (
-          savedRates.length &&
-          JSON.stringify(savedRates) !== JSON.stringify(initialRates)
-        )
-          seedWrites.push(rateCardRepository.saveAll(initialRates));
-        if (
-          savedSettings &&
-          JSON.stringify(savedSettings) !== JSON.stringify(initialSettings)
-        )
-          seedWrites.push(settingsRepository.save(initialSettings));
-        await Promise.all(seedWrites);
-        if (!active) return;
-        sp(initialProjects);
-        sr(initialRates);
-        ss(initialSettings);
-        sv(savedRevisions);
-        setSaveState('saved');
-      } catch {
-        if (!active) return;
-        sp([]);
-        sr(dr);
-        ss(ds);
-        sv([]);
-        setSaveState('error');
-        setStorageError(
-          'Local saving is unavailable. You can keep working, but changes may not remain after closing the app.',
-        );
-      } finally {
-        if (active) setReady(true);
-      }
-    })();
-    const refreshSharedWorkspace = async () => {
+    void loadLocalMigrationData(user.uid).then((local) => {
       if (
-        !active ||
-        document.visibilityState !== 'visible' ||
-        inFlightWrites.current > 0 ||
-        Object.keys(pendingWrites.current).length
+        active &&
+        (local.projects.length || local.rates.length || local.revisions.length)
       )
-        return;
-      try {
-        const [sharedProjects, sharedRates, sharedSettings, sharedRevisions] =
-          await Promise.all([
-            projectRepository.list(),
-            rateCardRepository.list(),
-            settingsRepository.get(),
-            revisionRepository.list(),
-          ]);
+        setLocalMigration(local);
+    });
+    const unsubscribe = subscribeWorkspace(
+      user,
+      (snapshot) => {
         if (!active) return;
-        sp(sharedProjects.map(normalizeProject));
-        sr(sharedRates.length ? sharedRates : dr);
-        ss(normalizeFirmSettings(sharedSettings));
-        sv(sharedRevisions);
+        snapshotRef.current = snapshot;
+        const normalized = snapshot.projects.map(normalizeProject);
+        const mergedRates = snapshot.rates.length
+          ? [
+              ...snapshot.rates,
+              ...dr
+                .filter(
+                  (template) =>
+                    !snapshot.rates.some(
+                      (saved) =>
+                        saved.name.toLowerCase() ===
+                        template.name.toLowerCase(),
+                    ),
+                )
+                .map((template) =>
+                  user.role === 'admin'
+                    ? template
+                    : {
+                        ...template,
+                        rates: { standard: 0, premium: 0, luxury: 0 },
+                        subUnits: [],
+                      },
+                ),
+            ]
+          : user.role === 'admin'
+            ? dr
+            : dr.map((template) => ({
+                ...template,
+                rates: { standard: 0, premium: 0, luxury: 0 },
+                subUnits: [],
+              }));
+        projectRef.current = normalized;
+        rateRef.current = mergedRates;
+        settingsRef.current = normalizeFirmSettings(snapshot.settings);
+        revisionRef.current = snapshot.revisions;
+        sp(normalized);
+        sr(mergedRates);
+        ss(settingsRef.current);
+        sv(snapshot.revisions);
         setSaveState('saved');
         setStorageError(null);
-      } catch {
-        if (active) {
-          setSaveState('error');
-          setStorageError(
-            'The shared workspace could not be refreshed. Your cached copy remains available.',
-          );
-        }
-      }
-    };
+        setReady(true);
+      },
+      (message) => {
+        if (!active) return;
+        setSaveState('error');
+        setStorageError(`Firebase synchronization failed: ${message}`);
+        setReady(true);
+      },
+    );
     const flushPending = () => {
       if (document.visibilityState === 'hidden')
         Object.keys(pendingWrites.current).forEach(
           (key) => void flushWrite(key),
         );
-      else void refreshSharedWorkspace();
     };
-    const refreshTimer = window.setInterval(
-      () => void refreshSharedWorkspace(),
-      15_000,
-    );
     document.addEventListener('visibilitychange', flushPending);
-    window.addEventListener('focus', refreshSharedWorkspace);
     window.addEventListener('pagehide', flushPending);
     return () => {
       active = false;
-      window.clearInterval(refreshTimer);
+      unsubscribe();
       document.removeEventListener('visibilitychange', flushPending);
-      window.removeEventListener('focus', refreshSharedWorkspace);
       window.removeEventListener('pagehide', flushPending);
     };
-  }, []);
+  }, [user?.uid, user?.role]);
+
+  const currentUser = user;
   return {
+    authReady,
+    user,
+    canManageFinancials: user?.role === 'admin',
     hydrated: ready,
     saveState,
     storageError,
     projects,
     setProjects: (v) => {
+      const previous = snapshotRef.current.projects;
+      projectRef.current = v;
       sp(v);
-      if (ready) queueWrite('projects', () => projectRepository.saveAll(v));
+      if (ready && currentUser)
+        queueWrite('projects', () =>
+          saveProjects(currentUser, previous, projectRef.current),
+        );
     },
     deleteProject: async (projectId) => {
+      if (!currentUser || currentUser.role !== 'admin') return;
       sp((current) => current.filter((project) => project.id !== projectId));
       if (!ready) return;
       setSaveState('saving');
       try {
         await flushWrite('projects');
-        await projectRepository.delete(projectId);
+        const before = projectRef.current;
+        const after = before.filter((project) => project.id !== projectId);
+        projectRef.current = after;
+        await saveProjects(currentUser, before, after);
         setSaveState('saved');
       } catch {
         setSaveState('error');
-        setStorageError(
-          'The project was removed here, but could not be deleted from the shared workspace.',
-        );
+        setStorageError('The project could not be deleted from Firebase.');
       }
     },
     deleteRoom: async (projectId, roomId) => {
-      sp((current) =>
-        current.map((project) =>
-          project.id === projectId
-            ? {
-                ...project,
-                updatedAt: new Date().toISOString(),
-                rooms: project.rooms.filter((room) => room.id !== roomId),
-              }
-            : project,
-        ),
+      const before = projectRef.current;
+      const after = before.map((project) =>
+        project.id === projectId
+          ? {
+              ...project,
+              updatedAt: new Date().toISOString(),
+              rooms: project.rooms.filter((room) => room.id !== roomId),
+            }
+          : project,
       );
+      projectRef.current = after;
+      sp(after);
       if (!ready) return;
       setSaveState('saving');
       try {
         await flushWrite('projects');
-        await projectRepository.deleteRoom(projectId, roomId);
+        if (currentUser) await saveProjects(currentUser, before, after);
         setSaveState('saved');
       } catch {
         setSaveState('error');
-        setStorageError(
-          'The room was removed here, but could not be deleted from the shared workspace.',
-        );
+        setStorageError('The room could not be deleted from Firebase.');
       }
     },
     rates,
     setRates: (v) => {
+      if (!currentUser || currentUser.role !== 'admin') return;
+      const previous = snapshotRef.current.rates;
+      rateRef.current = v;
       sr(v);
-      if (ready) queueWrite('rates', () => rateCardRepository.saveAll(v));
+      if (ready)
+        queueWrite('rates', () => saveRates(previous, rateRef.current));
     },
     settings,
     setSettings: (v) => {
+      if (!currentUser || currentUser.role !== 'admin') return;
+      settingsRef.current = v;
       ss(v);
-      if (ready) queueWrite('settings', () => settingsRepository.save(v));
+      if (ready)
+        queueWrite('settings', () =>
+          saveSettings(snapshotRef.current.settings, settingsRef.current),
+        );
     },
     revisions,
     setRevisions: (v) => {
+      if (!currentUser || currentUser.role !== 'admin') return;
+      revisionRef.current = v;
       sv(v);
-      if (ready) queueWrite('revisions', () => revisionRepository.saveAll(v));
+      if (ready)
+        queueWrite('revisions', () =>
+          saveRevisions(snapshotRef.current.revisions, revisionRef.current),
+        );
+    },
+    signIn: emailSignIn,
+    signUp: emailSignUp,
+    signOut: workspaceSignOut,
+    localMigration,
+    migrateLocal: async () => {
+      if (!currentUser || !localMigration) return 0;
+      setSaveState('saving');
+      const count = await migrateLocalWorkspace(
+        currentUser,
+        localMigration,
+        snapshotRef.current,
+      );
+      setLocalMigration(null);
+      setSaveState('saved');
+      return count;
     },
   };
 }
@@ -384,6 +444,7 @@ function Shell({ s }: { s: Store }) {
     [collapsed, setCollapsed] = useState(false),
     go = useNavigate(),
     location = useLocation();
+  const visibleNav = s.canManageFinancials ? nav : nav.slice(0, 2);
   return (
     <div className={'app-shell ' + (collapsed ? 'nav-collapsed' : '')}>
       <aside className={'sidebar ' + (open ? 'open' : '')}>
@@ -406,7 +467,7 @@ function Shell({ s }: { s: Store }) {
           </button>
         </div>
         <nav>
-          {nav.map(([to, label, I]) => (
+          {visibleNav.map(([to, label, I]) => (
             <button
               key={to}
               className={location.pathname.startsWith(to) ? 'active' : ''}
@@ -423,9 +484,16 @@ function Shell({ s }: { s: Store }) {
         <div className="profile">
           <b>ND</b>
           <span>
-            <strong>Nebulous Design</strong>
-            <small>Shared workspace</small>
+            <strong>{s.user?.displayName || s.user?.email}</strong>
+            <small>{s.canManageFinancials ? 'Boss / Admin' : 'Employee'}</small>
           </span>
+          <button
+            className="profile-signout"
+            onClick={() => void s.signOut()}
+            title="Sign out"
+          >
+            <DoorOpen />
+          </button>
         </div>
       </aside>
       <div className="main">
@@ -440,12 +508,12 @@ function Shell({ s }: { s: Store }) {
           <span className={`saved ${s.saveState}`}>
             ●{' '}
             {s.saveState === 'loading'
-              ? 'Loading shared data'
+              ? 'Loading Firebase data'
               : s.saveState === 'saving'
                 ? 'Saving…'
                 : s.saveState === 'error'
                   ? 'Saving unavailable'
-                  : 'Saved for everyone'}
+                  : 'Synced to Firebase'}
           </span>
         </header>
         {s.storageError && (
@@ -453,19 +521,165 @@ function Shell({ s }: { s: Store }) {
             {s.storageError}
           </div>
         )}
+        {s.canManageFinancials && s.localMigration && (
+          <div className="migration-banner" role="status">
+            <span>
+              Local projects are still available on this device. Import them
+              once into Firebase without deleting the originals.
+            </span>
+            <Button variant="outline" onClick={() => void s.migrateLocal()}>
+              Import local data
+            </Button>
+          </div>
+        )}
         <Routes>
           <Route path="/dashboard" element={<Dashboard s={s} />} />
           <Route path="/projects" element={<Projects s={s} />} />
           <Route path="/projects/:id" element={<Builder s={s} />} />
-          <Route path="/projects/:id/preview" element={<Preview s={s} />} />
-          <Route path="/projects/:id/revisions" element={<Revisions s={s} />} />
-          <Route path="/rate-card" element={<RateCard s={s} />} />
-          <Route path="/fees" element={<Fees s={s} />} />
-          <Route path="/settings" element={<Firm s={s} />} />
+          <Route
+            path="/projects/:id/preview"
+            element={
+              s.canManageFinancials ? (
+                <Preview s={s} />
+              ) : (
+                <Navigate to="/projects" />
+              )
+            }
+          />
+          <Route
+            path="/projects/:id/revisions"
+            element={
+              s.canManageFinancials ? (
+                <Revisions s={s} />
+              ) : (
+                <Navigate to="/projects" />
+              )
+            }
+          />
+          <Route
+            path="/rate-card"
+            element={
+              s.canManageFinancials ? (
+                <RateCard s={s} />
+              ) : (
+                <Navigate to="/projects" />
+              )
+            }
+          />
+          <Route
+            path="/fees"
+            element={
+              s.canManageFinancials ? (
+                <Fees s={s} />
+              ) : (
+                <Navigate to="/projects" />
+              )
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              s.canManageFinancials ? (
+                <Firm s={s} />
+              ) : (
+                <Navigate to="/projects" />
+              )
+            }
+          />
           <Route path="*" element={<Navigate to="/dashboard" />} />
         </Routes>
       </div>
     </div>
+  );
+}
+
+function AuthScreen({ s }: { s: Store }) {
+  const [createAccount, setCreateAccount] = useState(false),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState('');
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setBusy(true);
+    setError('');
+    try {
+      const email = String(form.get('email')).trim();
+      const password = String(form.get('password'));
+      await (createAccount
+        ? s.signUp(email, password)
+        : s.signIn(email, password));
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message.replace(/^Firebase:\s*/, '')
+          : 'Authentication failed',
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <main className="auth-screen">
+      <section className="auth-card">
+        <div className="auth-brand">
+          <b>ND</b>
+          <span>
+            NEBULOUS DESIGN<small>Quotation Studio</small>
+          </span>
+        </div>
+        <small>SECURE TEAM WORKSPACE</small>
+        <h1>{createAccount ? 'Create employee account' : 'Sign in'}</h1>
+        <p>
+          Projects synchronize through Firebase across your computers and
+          phones.
+        </p>
+        <form onSubmit={submit}>
+          <label>
+            Email
+            <Input name="email" type="email" autoComplete="email" required />
+          </label>
+          <label>
+            Password
+            <Input
+              name="password"
+              type="password"
+              autoComplete={createAccount ? 'new-password' : 'current-password'}
+              minLength={6}
+              required
+            />
+          </label>
+          {error && (
+            <div className="auth-error" role="alert">
+              {error}
+            </div>
+          )}
+          <Button type="submit" size="lg" disabled={busy}>
+            {busy
+              ? 'Please wait…'
+              : createAccount
+                ? 'Create account'
+                : 'Sign in'}
+          </Button>
+        </form>
+        <button
+          className="auth-switch"
+          onClick={() => {
+            setCreateAccount((value) => !value);
+            setError('');
+          }}
+        >
+          {createAccount
+            ? 'Already have an account? Sign in'
+            : 'New employee? Create an account'}
+        </button>
+        {createAccount && (
+          <small className="auth-note">
+            New accounts start as Employees. An admin can promote accounts in
+            Firebase.
+          </small>
+        )}
+      </section>
+    </main>
   );
 }
 function Modal({
@@ -705,24 +919,26 @@ function NewProject({ s }: { s: Store }) {
                     }
                   />
                 </label>
-                <label>
-                  Default tier
-                  <select
-                    value={details.defaultTier}
-                    onChange={(e) =>
-                      setDetails({
-                        ...details,
-                        defaultTier: e.target.value as Tier,
-                      })
-                    }
-                  >
-                    {s.settings.enabledTiers.map((t) => (
-                      <option value={t} key={t}>
-                        {tl(t)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                {s.canManageFinancials && (
+                  <label>
+                    Default tier
+                    <select
+                      value={details.defaultTier}
+                      onChange={(e) =>
+                        setDetails({
+                          ...details,
+                          defaultTier: e.target.value as Tier,
+                        })
+                      }
+                    >
+                      {s.settings.enabledTiers.map((t) => (
+                        <option value={t} key={t}>
+                          {tl(t)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 <label className="wide">
                   Notes
                   <textarea
@@ -1126,28 +1342,35 @@ function Dashboard({ s }: { s: Store }) {
           value={String(s.projects.length)}
           note={`${s.projects.filter((p) => p.status === 'active').length} active quotations`}
         />
-        <Metric
-          label="Quotation value"
-          value={inr(total)}
-          note="Across all projects"
-        />
-        <Metric
-          green
-          label="Design fee revenue"
-          value={inr(fees)}
-          note="Projected fee income"
-        />
-        <Metric
-          label="Average project"
-          value={inr(s.projects.length ? total / s.projects.length : 0)}
-          note="Portfolio average"
-        />
+        {s.canManageFinancials && (
+          <>
+            <Metric
+              label="Quotation value"
+              value={inr(total)}
+              note="Across all projects"
+            />
+            <Metric
+              green
+              label="Design fee revenue"
+              value={inr(fees)}
+              note="Projected fee income"
+            />
+            <Metric
+              label="Average project"
+              value={inr(s.projects.length ? total / s.projects.length : 0)}
+              note="Portfolio average"
+            />
+          </>
+        )}
       </div>
       <section className="panel">
         <SectionHead title="Recent projects">
           <NewProject s={s} />
         </SectionHead>
-        <ProjectTable projects={s.projects.slice(0, 5)} />
+        <ProjectTable
+          projects={s.projects.slice(0, 5)}
+          showFinancials={s.canManageFinancials}
+        />
       </section>
     </Page>
   );
@@ -1176,12 +1399,21 @@ function Projects({ s }: { s: Store }) {
         <SectionHead title="Quotation register">
           <NewProject s={s} />
         </SectionHead>
-        <ProjectTable projects={s.projects} />
+        <ProjectTable
+          projects={s.projects}
+          showFinancials={s.canManageFinancials}
+        />
       </section>
     </Page>
   );
 }
-function ProjectTable({ projects }: { projects: Project[] }) {
+function ProjectTable({
+  projects,
+  showFinancials,
+}: {
+  projects: Project[];
+  showFinancials: boolean;
+}) {
   const go = useNavigate();
   return (
     <div className="table-wrap">
@@ -1190,9 +1422,9 @@ function ProjectTable({ projects }: { projects: Project[] }) {
           <tr>
             <th>Project</th>
             <th>Layout</th>
-            <th>Tier</th>
+            {showFinancials && <th>Tier</th>}
             <th>Updated</th>
-            <th className="num">Value</th>
+            {showFinancials && <th className="num">Value</th>}
           </tr>
         </thead>
         <tbody>
@@ -1203,13 +1435,17 @@ function ProjectTable({ projects }: { projects: Project[] }) {
                 <small>{p.clientName}</small>
               </td>
               <td>{p.layout}</td>
-              <td>
-                <em className="pill">{tl(p.defaultTier)}</em>
-              </td>
+              {showFinancials && (
+                <td>
+                  <em className="pill">{tl(p.defaultTier)}</em>
+                </td>
+              )}
               <td>{new Date(p.updatedAt).toLocaleDateString('en-IN')}</td>
-              <td className="num">
-                <strong>{inr(quoteTotals(p).grandTotal)}</strong>
-              </td>
+              {showFinancials && (
+                <td className="num">
+                  <strong>{inr(quoteTotals(p).grandTotal)}</strong>
+                </td>
+              )}
             </tr>
           ))}
         </tbody>
@@ -1500,22 +1736,27 @@ function Builder({ s }: { s: Store }) {
         <div className="builder-actions">
           <nav className="project-links" aria-label="Quotation workflow">
             <span>Builder</span>
-            <button onClick={() => setCompare(true)}>Compare</button>
-            <button onClick={() => go(`/projects/${id}/revisions`)}>
-              Revisions
-            </button>
-            <button onClick={() => go(`/projects/${id}/preview`)}>
-              Preview
-            </button>
+            {s.canManageFinancials && (
+              <>
+                <button onClick={() => setCompare(true)}>Compare</button>
+                <button onClick={() => go(`/projects/${id}/revisions`)}>
+                  Revisions
+                </button>
+                <button onClick={() => go(`/projects/${id}/preview`)}>
+                  Preview
+                </button>
+              </>
+            )}
           </nav>
-          <Button
-            variant="outline"
-            className="save-revision"
-            onClick={() => setRevisionModal(true)}
-          >
-            <Save />
-            Save revision
-          </Button>
+          {s.canManageFinancials && (
+            <Button
+              variant="outline"
+              className="save-revision"
+              onClick={() => setRevisionModal(true)}
+            >
+              <Save /> Save revision
+            </Button>
+          )}
           <div className="project-actions-wrap">
             <Button
               variant="outline"
@@ -1529,24 +1770,28 @@ function Builder({ s }: { s: Store }) {
             </Button>
             {projectActions && (
               <div className="context-menu project-menu">
-                <button
-                  onClick={() => {
-                    setProjectActions(false);
-                    setCompare(true);
-                  }}
-                >
-                  <BarChart3 />
-                  Compare tiers
-                </button>
-                <button onClick={() => go(`/projects/${id}/revisions`)}>
-                  <FileClock />
-                  Revision history
-                </button>
-                <button onClick={() => go(`/projects/${id}/preview`)}>
-                  <ReceiptText />
-                  Quotation preview
-                </button>
-                <span />
+                {s.canManageFinancials && (
+                  <>
+                    <button
+                      onClick={() => {
+                        setProjectActions(false);
+                        setCompare(true);
+                      }}
+                    >
+                      <BarChart3 />
+                      Compare tiers
+                    </button>
+                    <button onClick={() => go(`/projects/${id}/revisions`)}>
+                      <FileClock />
+                      Revision history
+                    </button>
+                    <button onClick={() => go(`/projects/${id}/preview`)}>
+                      <ReceiptText />
+                      Quotation preview
+                    </button>
+                    <span />
+                  </>
+                )}
                 <button
                   onClick={() => {
                     setRenameValue(p.propertyName);
@@ -1555,7 +1800,7 @@ function Builder({ s }: { s: Store }) {
                   }}
                 >
                   <Pencil />
-                  Rename project
+                  Edit project details
                 </button>
                 <button
                   onClick={() => {
@@ -1574,26 +1819,30 @@ function Builder({ s }: { s: Store }) {
                   <Copy />
                   Duplicate project
                 </button>
-                <button
-                  onClick={() => {
-                    void exportProjectExcel(p, s.settings);
-                    setProjectActions(false);
-                  }}
-                >
-                  <Download />
-                  Export quotation
-                </button>
-                <span />
-                <button
-                  className="danger"
-                  onClick={() => {
-                    setProjectActions(false);
-                    setDeleteProject(true);
-                  }}
-                >
-                  <Trash2 />
-                  Delete project
-                </button>
+                {s.canManageFinancials && (
+                  <>
+                    <button
+                      onClick={() => {
+                        void exportProjectExcel(p, s.settings);
+                        setProjectActions(false);
+                      }}
+                    >
+                      <Download />
+                      Export quotation
+                    </button>
+                    <span />
+                    <button
+                      className="danger"
+                      onClick={() => {
+                        setProjectActions(false);
+                        setDeleteProject(true);
+                      }}
+                    >
+                      <Trash2 />
+                      Delete project
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -1687,7 +1936,9 @@ function Builder({ s }: { s: Store }) {
                     {items.length} {items.length === 1 ? 'item' : 'items'}
                   </small>
                 </span>
-                <b>{inr(roomWorkTypeTotal(space))}</b>
+                {s.canManageFinancials && (
+                  <b>{inr(roomWorkTypeTotal(space))}</b>
+                )}
                 <ChevronRight />
               </button>
             );
@@ -1698,7 +1949,7 @@ function Builder({ s }: { s: Store }) {
         </Button>
       </section>
       <div
-        className={`builder-grid ${roomsOpen ? 'rooms-open' : 'rooms-closed'} ${summaryOpen ? 'summary-open' : 'summary-closed'} ${mobileSpaceDetail ? 'mobile-detail-open' : 'mobile-detail-closed'}`}
+        className={`builder-grid ${roomsOpen ? 'rooms-open' : 'rooms-closed'} ${summaryOpen && s.canManageFinancials ? 'summary-open' : 'summary-closed'} ${mobileSpaceDetail ? 'mobile-detail-open' : 'mobile-detail-closed'}`}
       >
         <aside className={`rooms ${roomsOpen ? 'panel-open' : 'panel-closed'}`}>
           <header>
@@ -1735,7 +1986,7 @@ function Builder({ s }: { s: Store }) {
                     {roomWorkTypeItems(r).length === 1 ? 'item' : 'items'}
                   </small>
                 </span>
-                <b>{inr(roomWorkTypeTotal(r))}</b>
+                {s.canManageFinancials && <b>{inr(roomWorkTypeTotal(r))}</b>}
                 <ChevronRight className="room-chevron" />
               </button>
               <div>
@@ -1836,17 +2087,19 @@ function Builder({ s }: { s: Store }) {
                   {roomWorkTypeItems(room).length === 1 ? 'item' : 'items'}{' '}
                   shown
                 </span>
-                <Button
-                  className="summary-toggle"
-                  variant="ghost"
-                  size="icon-lg"
-                  onClick={() => setSummaryOpen((value) => !value)}
-                  aria-pressed={summaryOpen}
-                  aria-label={summaryOpen ? 'Hide summary' : 'Show summary'}
-                  title={summaryOpen ? 'Hide summary' : 'Show summary'}
-                >
-                  {summaryOpen ? <X /> : <WalletCards />}
-                </Button>
+                {s.canManageFinancials && (
+                  <Button
+                    className="summary-toggle"
+                    variant="ghost"
+                    size="icon-lg"
+                    onClick={() => setSummaryOpen((value) => !value)}
+                    aria-pressed={summaryOpen}
+                    aria-label={summaryOpen ? 'Hide summary' : 'Show summary'}
+                    title={summaryOpen ? 'Hide summary' : 'Show summary'}
+                  >
+                    {summaryOpen ? <X /> : <WalletCards />}
+                  </Button>
+                )}
               </div>
               <section className="room-workspace">
                 <header>
@@ -1867,10 +2120,12 @@ function Builder({ s }: { s: Store }) {
                       </p>
                     </div>
                   </div>
-                  <span>
-                    <strong>{inr(roomWorkTypeTotal(room))}</strong>
-                    <small>Visible items</small>
-                  </span>
+                  {s.canManageFinancials && (
+                    <span>
+                      <strong>{inr(roomWorkTypeTotal(room))}</strong>
+                      <small>Visible items</small>
+                    </span>
+                  )}
                 </header>
                 <div className="room-components">
                   {roomFilteredItems(room).length === 0 ? (
@@ -1909,6 +2164,7 @@ function Builder({ s }: { s: Store }) {
                         key={item.id}
                         item={item}
                         p={p}
+                        canManageFinancials={s.canManageFinancials}
                         showWorkType={selectedWorkType === 'All'}
                         currentRoomId={room.id}
                         editing={editingItemId === item.id}
@@ -2015,14 +2271,16 @@ function Builder({ s }: { s: Store }) {
             </div>
           )}
         </main>
-        <Summary
-          p={p}
-          update={update}
-          open={summaryOpen}
-          close={() => setSummaryOpen(false)}
-          preview={() => go(`/projects/${id}/preview`)}
-          download={() => void exportProjectExcel(p, s.settings)}
-        />
+        {s.canManageFinancials && (
+          <Summary
+            p={p}
+            update={update}
+            open={summaryOpen}
+            close={() => setSummaryOpen(false)}
+            preview={() => go(`/projects/${id}/preview`)}
+            download={() => void exportProjectExcel(p, s.settings)}
+          />
+        )}
       </div>
       {roomModal && (
         <Modal title="Add a room" close={() => setRoomModal(false)}>
@@ -2113,7 +2371,9 @@ function Builder({ s }: { s: Store }) {
                         {floorRooms.length === 1 ? 'space' : 'spaces'}
                       </small>
                     </label>
-                    <strong>{inr(floorTotal)}</strong>
+                    {s.canManageFinancials && (
+                      <strong>{inr(floorTotal)}</strong>
+                    )}
                     <Button
                       variant="ghost"
                       size="icon-lg"
@@ -2235,9 +2495,11 @@ function Builder({ s }: { s: Store }) {
                               {space.items.length === 1 ? 'item' : 'items'}
                             </small>
                           </label>
-                          <strong>
-                            {inr(roomTotal(space, p.defaultTier))}
-                          </strong>
+                          {s.canManageFinancials && (
+                            <strong>
+                              {inr(roomTotal(space, p.defaultTier))}
+                            </strong>
+                          )}
                           <select
                             aria-label={`Move ${space.name} to another floor`}
                             value={space.floorId}
@@ -2342,9 +2604,11 @@ function Builder({ s }: { s: Store }) {
               >
                 <strong>{r.name}</strong>
                 <small>{r.description}</small>
-                <span>
-                  {inr(r.rates[p.defaultTier])} / {r.unit}
-                </span>
+                {s.canManageFinancials && (
+                  <span>
+                    {inr(r.rates[p.defaultTier])} / {r.unit}
+                  </span>
+                )}
               </button>
             ))}
             <button
@@ -2378,25 +2642,70 @@ function Builder({ s }: { s: Store }) {
           </div>
         </Modal>
       )}
-      {compare && <Compare p={p} close={() => setCompare(false)} />}
+      {s.canManageFinancials && compare && (
+        <Compare p={p} close={() => setCompare(false)} />
+      )}
       {renameModal && (
-        <Modal title="Rename project" close={() => setRenameModal(false)}>
+        <Modal
+          title="Edit project details"
+          close={() => setRenameModal(false)}
+        >
           <form
             onSubmit={(event) => {
               event.preventDefault();
+              const form = new FormData(event.currentTarget);
               const name = renameValue.trim();
               if (!name) return;
-              update((q) => ({ ...q, propertyName: name }));
+              update((q) => ({
+                ...q,
+                propertyName: name,
+                clientName: String(form.get('clientName') ?? ''),
+                propertyType: String(form.get('propertyType') ?? ''),
+                layout: String(form.get('layout') ?? ''),
+                location: String(form.get('location') ?? ''),
+                carpetArea: Number(form.get('carpetArea')) || 0,
+                notes: String(form.get('notes') ?? ''),
+              }));
               setRenameModal(false);
             }}
           >
-            <div className="form-grid single-column">
+            <div className="form-grid">
               <label>
                 Property name
                 <Input
                   value={renameValue}
                   onChange={(event) => setRenameValue(event.target.value)}
                 />
+              </label>
+              <label>
+                Client
+                <Input name="clientName" defaultValue={p.clientName} />
+              </label>
+              <label>
+                Property type
+                <Input name="propertyType" defaultValue={p.propertyType} />
+              </label>
+              <label>
+                Layout / BHK
+                <Input name="layout" defaultValue={p.layout} />
+              </label>
+              <label>
+                Location
+                <Input name="location" defaultValue={p.location} />
+              </label>
+              <label>
+                Carpet area (sq.ft)
+                <Input
+                  name="carpetArea"
+                  type="number"
+                  min="0"
+                  step="any"
+                  defaultValue={p.carpetArea}
+                />
+              </label>
+              <label className="wide">
+                Project notes
+                <textarea name="notes" defaultValue={p.notes} />
               </label>
             </div>
             <div className="actions">
@@ -2414,7 +2723,7 @@ function Builder({ s }: { s: Store }) {
           </form>
         </Modal>
       )}
-      {revisionModal && (
+      {s.canManageFinancials && revisionModal && (
         <Modal
           title="Save revision"
           className="save-revision-modal"
@@ -2456,7 +2765,7 @@ function Builder({ s }: { s: Store }) {
           </form>
         </Modal>
       )}
-      {deleteProject && (
+      {s.canManageFinancials && deleteProject && (
         <Modal title="Delete project" close={() => setDeleteProject(false)}>
           <div className="delete-confirm">
             <Trash2 />
@@ -2556,6 +2865,7 @@ function itemMeasureLabel(item: QuoteItem) {
 function Item({
   item,
   p,
+  canManageFinancials,
   showWorkType,
   currentRoomId,
   editing,
@@ -2568,6 +2878,7 @@ function Item({
 }: {
   item: QuoteItem;
   p: Project;
+  canManageFinancials: boolean;
   showWorkType: boolean;
   currentRoomId: string;
   editing: boolean;
@@ -2634,11 +2945,13 @@ function Item({
           <figure className="item-image">
             <img src={itemImage(item.name)} alt="" aria-hidden="true" />
           </figure>
-          <Switch
-            checked={item.enabled}
-            onCheckedChange={(v) => patch({ enabled: v })}
-            onClick={(event) => event.stopPropagation()}
-          />
+          {canManageFinancials && (
+            <Switch
+              checked={item.enabled}
+              onCheckedChange={(v) => patch({ enabled: v })}
+              onClick={(event) => event.stopPropagation()}
+            />
+          )}
           <span className="item-copy">
             <strong>{item.name}</strong>
             {showWorkType && (
@@ -2650,10 +2963,12 @@ function Item({
             </span>
           </span>
         </div>
-        <span className="item-total">
-          <strong>{inr(total)}</strong>
-          {savings > 0 && <small>You save {inr(savings)}</small>}
-        </span>
+        {canManageFinancials && (
+          <span className="item-total">
+            <strong>{inr(total)}</strong>
+            {savings > 0 && <small>You save {inr(savings)}</small>}
+          </span>
+        )}
         <Button
           variant={editing ? 'secondary' : 'outline'}
           className="edit-item"
@@ -2774,15 +3089,17 @@ function Item({
                         ))}
                     </select>
                   </label>
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      patch({ enabled: !item.enabled });
-                      setMore(false);
-                    }}
-                  >
-                    {item.enabled ? 'Disable item' : 'Enable item'}
-                  </Button>
+                  {canManageFinancials && (
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        patch({ enabled: !item.enabled });
+                        setMore(false);
+                      }}
+                    >
+                      {item.enabled ? 'Disable item' : 'Enable item'}
+                    </Button>
+                  )}
                   <div className="menu-order">
                     <Button
                       variant="ghost"
@@ -3039,66 +3356,68 @@ function Item({
               )}
             </div>
           </section>
-          <section
-            className="pricing-editor"
-            aria-labelledby={`price-${item.id}`}
-          >
-            <header>
-              <div>
-                <strong id={`price-${item.id}`}>Price</strong>
-                <small>Set the price for each recorded unit.</small>
-              </div>
-              <output>{inr(total)}</output>
-            </header>
-            <div className="pricing-grid">
-              <label>
-                Calculation
-                <select
-                  value={item.pricingMode ?? 'unit'}
-                  onChange={(e) =>
-                    patch({
-                      pricingMode: e.target.value as QuoteItem['pricingMode'],
-                    })
-                  }
-                >
-                  <option value="unit">Quantity × rate</option>
-                  <option value="lump-sum">Fixed amount per unit</option>
-                </select>
-              </label>
-              <label>
-                {item.pricingMode === 'lump-sum'
-                  ? item.unit === 'Lump Sum'
-                    ? 'Lump-sum price'
-                    : `Fixed price per ${item.customUnit || item.unit || item.measurementType}`
-                  : `Rate per ${item.customUnit || item.unit || item.measurementType}`}
-                <Num
-                  value={rate}
-                  onChange={(v) => patch({ rateOverride: v })}
-                />
-              </label>
-              <div className="price-formula">
-                <span>
-                  {itemMeasure(item).toLocaleString('en-IN')}{' '}
-                  {item.customUnit || item.unit || item.measurementType} ×{' '}
-                  {inr(rate)}
-                  {item.discount > 0 ? ` − ${inr(item.discount)}` : ''}
-                </span>
-                <strong>{inr(total)}</strong>
-              </div>
-            </div>
-            <details className="advanced-pricing">
-              <summary>More pricing options</summary>
-              <div>
+          {canManageFinancials && (
+            <section
+              className="pricing-editor"
+              aria-labelledby={`price-${item.id}`}
+            >
+              <header>
+                <div>
+                  <strong id={`price-${item.id}`}>Price</strong>
+                  <small>Set the price for each recorded unit.</small>
+                </div>
+                <output>{inr(total)}</output>
+              </header>
+              <div className="pricing-grid">
                 <label>
-                  Discount
+                  Calculation
+                  <select
+                    value={item.pricingMode ?? 'unit'}
+                    onChange={(e) =>
+                      patch({
+                        pricingMode: e.target.value as QuoteItem['pricingMode'],
+                      })
+                    }
+                  >
+                    <option value="unit">Quantity × rate</option>
+                    <option value="lump-sum">Fixed amount per unit</option>
+                  </select>
+                </label>
+                <label>
+                  {item.pricingMode === 'lump-sum'
+                    ? item.unit === 'Lump Sum'
+                      ? 'Lump-sum price'
+                      : `Fixed price per ${item.customUnit || item.unit || item.measurementType}`
+                    : `Rate per ${item.customUnit || item.unit || item.measurementType}`}
                   <Num
-                    value={item.discount}
-                    onChange={(discount) => patch({ discount })}
+                    value={rate}
+                    onChange={(v) => patch({ rateOverride: v })}
                   />
                 </label>
+                <div className="price-formula">
+                  <span>
+                    {itemMeasure(item).toLocaleString('en-IN')}{' '}
+                    {item.customUnit || item.unit || item.measurementType} ×{' '}
+                    {inr(rate)}
+                    {item.discount > 0 ? ` − ${inr(item.discount)}` : ''}
+                  </span>
+                  <strong>{inr(total)}</strong>
+                </div>
               </div>
-            </details>
-          </section>
+              <details className="advanced-pricing">
+                <summary>More pricing options</summary>
+                <div>
+                  <label>
+                    Discount
+                    <Num
+                      value={item.discount}
+                      onChange={(discount) => patch({ discount })}
+                    />
+                  </label>
+                </div>
+              </details>
+            </section>
+          )}
           <label className="item-notes">
             HSN code
             <Input
@@ -3114,7 +3433,7 @@ function Item({
               onChange={(event) => patch({ notes: event.target.value })}
             />
           </label>
-          {savings > 0 && (
+          {canManageFinancials && savings > 0 && (
             <div className="rate-saving savings-only">
               <span>
                 You save <strong>{inr(savings)}</strong>
@@ -3793,7 +4112,7 @@ function WebTool({ s }: { s: Store }) {
           name: 'list_nebulous_projects',
           title: 'List Nebulous Design projects',
           description:
-            'List locally saved quotation projects and current totals.',
+            'List Firebase-synchronized quotation projects available to the signed-in user.',
           inputSchema: {
             type: 'object',
             properties: {},
@@ -3805,20 +4124,36 @@ function WebTool({ s }: { s: Store }) {
               id: p.id,
               client: p.clientName,
               property: p.propertyName,
-              total: quoteTotals(p).grandTotal,
+              ...(s.canManageFinancials
+                ? { total: quoteTotals(p).grandTotal }
+                : {}),
             })),
         },
         { signal: c.signal },
       ),
     ).catch(() => {});
     return () => c.abort();
-  }, [s.projects]);
+  }, [s.projects, s.canManageFinancials]);
   return null;
 }
 function Root() {
   const s = useStore();
+  if (!firebaseConfigured)
+    return (
+      <div className="firebase-config-error">
+        <h1>Firebase configuration required</h1>
+        <p>
+          Copy <code>.env.example</code> to <code>.env.local</code> and add the
+          Firebase Web App values.
+        </p>
+        <small>Missing: {missingFirebaseEnvironment.join(', ')}</small>
+      </div>
+    );
+  if (!s.authReady)
+    return <div className="boot">Connecting securely to Firebase…</div>;
+  if (!s.user) return <AuthScreen s={s} />;
   if (!s.hydrated)
-    return <div className="boot">Loading your saved workspace…</div>;
+    return <div className="boot">Loading your Firebase workspace…</div>;
   return (
     <>
       <WebTool s={s} />

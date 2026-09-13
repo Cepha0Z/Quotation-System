@@ -1,0 +1,684 @@
+import {
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  setPersistence,
+  signInWithEmailAndPassword,
+  signOut,
+  browserLocalPersistence,
+  type User,
+} from 'firebase/auth';
+import {
+  get,
+  onValue,
+  ref,
+  remove,
+  runTransaction,
+  set,
+  update,
+  type Unsubscribe,
+} from 'firebase/database';
+import { normalizeProject } from '@/domain/boq';
+import type { WorkspaceUser, UserRole } from '@/domain/auth';
+import type {
+  FirmSettings,
+  Project,
+  QuoteItem,
+  RateCardItem,
+  Revision,
+  Room,
+} from '@/domain/types';
+import { getFirebaseServices } from '@/lib/firebase';
+import { indexedDbStorage } from './db';
+
+type JsonRecord = Record<string, any>;
+
+export interface LocalMigrationData {
+  projects: Project[];
+  rates: RateCardItem[];
+  settings?: FirmSettings;
+  revisions: Revision[];
+}
+
+export interface WorkspaceSnapshot {
+  projects: Project[];
+  rates: RateCardItem[];
+  settings?: FirmSettings;
+  revisions: Revision[];
+}
+
+const zeroRates = { standard: 0, premium: 0, luxury: 0 } as const;
+const clean = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+const keyed = <T extends { id: string }>(values: T[]) =>
+  Object.fromEntries(values.map((value) => [value.id, clean(value)]));
+const ordered = <T>(
+  map: Record<string, T> | undefined,
+  order: string[] = [],
+) => {
+  const source = map ?? {};
+  const ids = [
+    ...order,
+    ...Object.keys(source).filter((id) => !order.includes(id)),
+  ];
+  return ids.map((id) => source[id]).filter(Boolean);
+};
+
+export function itemTechnical(item: QuoteItem) {
+  const {
+    enabled: _enabled,
+    rates: _rates,
+    tierOverride: _tierOverride,
+    rateOverride: _rateOverride,
+    discount: _discount,
+    pricingMode: _pricingMode,
+    subUnits: _subUnits,
+    ...technical
+  } = item;
+  return clean(technical);
+}
+
+export function itemFinancial(item: QuoteItem) {
+  return clean({
+    enabled: item.enabled,
+    rates: item.rates,
+    tierOverride: item.tierOverride,
+    rateOverride: item.rateOverride,
+    discount: item.discount,
+    pricingMode: item.pricingMode,
+    subUnits: item.subUnits,
+  });
+}
+
+export function projectTechnical(project: Project, ownerId?: string) {
+  const {
+    defaultTier: _defaultTier,
+    fees: _fees,
+    projectDiscount: _projectDiscount,
+    showRates: _showRates,
+    floors = [],
+    rooms,
+    ...technical
+  } = normalizeProject(project);
+  return clean({
+    ...technical,
+    createdBy: ownerId,
+    floorOrder: floors.map((floor) => floor.id),
+    floors: keyed(floors),
+    roomOrder: rooms.map((room) => room.id),
+    rooms: Object.fromEntries(
+      rooms.map((room) => [
+        room.id,
+        {
+          id: room.id,
+          name: room.name,
+          floorId: room.floorId,
+          itemOrder: room.items.map((item) => item.id),
+          items: Object.fromEntries(
+            room.items.map((item) => [item.id, itemTechnical(item)]),
+          ),
+        },
+      ]),
+    ),
+  });
+}
+
+export function projectFinancial(project: Project) {
+  return clean({
+    defaultTier: project.defaultTier,
+    projectDiscount: project.projectDiscount,
+    showRates: project.showRates,
+    feeOrder: project.fees.map((fee) => fee.id),
+    fees: keyed(project.fees),
+    rooms: Object.fromEntries(
+      project.rooms.map((room) => [
+        room.id,
+        {
+          items: Object.fromEntries(
+            room.items.map((item) => [item.id, itemFinancial(item)]),
+          ),
+        },
+      ]),
+    ),
+  });
+}
+
+export function combineProject(
+  technical: JsonRecord,
+  financial?: JsonRecord,
+): Project {
+  const floors = ordered(technical.floors, technical.floorOrder);
+  const rooms = ordered<JsonRecord>(technical.rooms, technical.roomOrder).map(
+    (room): Room => ({
+      id: room.id,
+      name: room.name,
+      floorId: room.floorId,
+      items: ordered<JsonRecord>(room.items, room.itemOrder).map((item) => {
+        const money = financial?.rooms?.[room.id]?.items?.[item.id] ?? {};
+        return {
+          ...item,
+          enabled: money.enabled ?? true,
+          rates: money.rates ?? zeroRates,
+          tierOverride: money.tierOverride,
+          rateOverride: money.rateOverride,
+          discount: money.discount ?? 0,
+          pricingMode:
+            money.pricingMode ??
+            (item.measurementType === 'flat' ? 'lump-sum' : 'unit'),
+          subUnits: money.subUnits ?? [],
+        } as QuoteItem;
+      }),
+    }),
+  );
+  const project = {
+    id: technical.id,
+    clientName: technical.clientName ?? '',
+    propertyName: technical.propertyName ?? '',
+    layout: technical.layout ?? '',
+    carpetArea: technical.carpetArea ?? 0,
+    status: technical.status ?? 'active',
+    createdAt: technical.createdAt ?? new Date(0).toISOString(),
+    updatedAt: technical.updatedAt ?? new Date(0).toISOString(),
+    propertyType: technical.propertyType ?? '',
+    location: technical.location ?? '',
+    notes: technical.notes ?? '',
+    floors,
+    rooms,
+    defaultTier: financial?.defaultTier ?? 'standard',
+    fees: ordered(financial?.fees, financial?.feeOrder),
+    projectDiscount: financial?.projectDiscount ?? 0,
+    showRates: financial?.showRates ?? false,
+  } as Project;
+  return normalizeProject(project);
+}
+
+function rateTechnical(rate: RateCardItem) {
+  return clean({
+    id: rate.id,
+    name: rate.name,
+    description: rate.description,
+    unit: rate.unit,
+  });
+}
+
+function rateFinancial(rate: RateCardItem) {
+  return clean({ rates: rate.rates, subUnits: rate.subUnits });
+}
+
+function combineRate(
+  technical: JsonRecord,
+  financial?: JsonRecord,
+): RateCardItem {
+  return {
+    id: technical.id,
+    name: technical.name,
+    description: technical.description ?? '',
+    unit: technical.unit ?? 'quantity',
+    rates: financial?.rates ?? zeroRates,
+    subUnits: financial?.subUnits ?? [],
+  };
+}
+
+function diff(base: any, next: any): any {
+  if (Object.is(base, next)) return undefined;
+  if (
+    base === null ||
+    next === null ||
+    typeof base !== 'object' ||
+    typeof next !== 'object' ||
+    Array.isArray(base) ||
+    Array.isArray(next)
+  )
+    return clean(next);
+  const patch: JsonRecord = {};
+  for (const key of new Set([...Object.keys(base), ...Object.keys(next)])) {
+    if (!(key in next)) patch[key] = null;
+    else {
+      const child = diff(base[key], next[key]);
+      if (child !== undefined) patch[key] = child;
+    }
+  }
+  return Object.keys(patch).length ? patch : undefined;
+}
+
+function applyPatch(current: any, patch: any): any {
+  if (patch === undefined) return current;
+  if (patch === null || typeof patch !== 'object' || Array.isArray(patch))
+    return patch;
+  const result = { ...(current ?? {}) };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null) delete result[key];
+    else result[key] = applyPatch(result[key], value);
+  }
+  return result;
+}
+
+export function mergeThreeWay(base: any, next: any, current: any) {
+  return applyPatch(current, diff(base ?? {}, next));
+}
+
+async function transactionalMerge(path: string, base: any, next: any) {
+  const services = getFirebaseServices();
+  if (!services) throw new Error('Firebase is not configured');
+  const patch = diff(base ?? {}, next);
+  if (patch === undefined) return;
+  await runTransaction(ref(services.database, path), (current) =>
+    applyPatch(current ?? {}, patch),
+  );
+}
+
+export async function saveProjects(
+  user: WorkspaceUser,
+  previous: Project[],
+  next: Project[],
+) {
+  const services = getFirebaseServices();
+  if (!services) throw new Error('Firebase is not configured');
+  const old = new Map(previous.map((project) => [project.id, project]));
+  const fresh = new Map(next.map((project) => [project.id, project]));
+  for (const project of next) {
+    const before = old.get(project.id);
+    const beforeTechnical = before ? projectTechnical(before) : {};
+    const nextTechnical = projectTechnical(
+      project,
+      before ? undefined : user.uid,
+    );
+    await transactionalMerge(
+      `projectsTechnical/${project.id}`,
+      beforeTechnical,
+      nextTechnical,
+    );
+    if (!before)
+      await set(
+        ref(services.database, `userProjects/${user.uid}/${project.id}`),
+        true,
+      );
+    if (user.role === 'admin')
+      await transactionalMerge(
+        `projectsFinancial/${project.id}`,
+        before ? projectFinancial(before) : {},
+        projectFinancial(project),
+      );
+  }
+  if (user.role === 'admin') {
+    for (const project of previous) {
+      if (fresh.has(project.id)) continue;
+      await Promise.all([
+        remove(ref(services.database, `projectsTechnical/${project.id}`)),
+        remove(ref(services.database, `projectsFinancial/${project.id}`)),
+        remove(ref(services.database, `projectMembers/${project.id}`)),
+      ]);
+    }
+  }
+}
+
+export async function saveRates(
+  previous: RateCardItem[],
+  next: RateCardItem[],
+) {
+  const beforeTechnical = keyed(previous.map(rateTechnical));
+  const nextTechnical = keyed(next.map(rateTechnical));
+  const beforeFinancial = Object.fromEntries(
+    previous.map((rate) => [rate.id, rateFinancial(rate)]),
+  );
+  const nextFinancial = Object.fromEntries(
+    next.map((rate) => [rate.id, rateFinancial(rate)]),
+  );
+  await Promise.all([
+    transactionalMerge('rateCardTechnical', beforeTechnical, nextTechnical),
+    transactionalMerge('rateCardFinancial', beforeFinancial, nextFinancial),
+  ]);
+}
+
+export async function saveSettings(
+  previous: FirmSettings | undefined,
+  settings: FirmSettings,
+) {
+  await transactionalMerge('firmSettings', previous ?? {}, clean(settings));
+}
+
+export async function saveRevisions(
+  previous: Revision[],
+  revisions: Revision[],
+) {
+  await transactionalMerge('revisions', keyed(previous), keyed(revisions));
+}
+
+export async function deleteProject(user: WorkspaceUser, projectId: string) {
+  const services = getFirebaseServices();
+  if (!services) throw new Error('Firebase is not configured');
+  if (user.role !== 'admin')
+    throw new Error('Only an administrator can delete projects');
+  await Promise.all([
+    remove(ref(services.database, `projectsTechnical/${projectId}`)),
+    remove(ref(services.database, `projectsFinancial/${projectId}`)),
+    remove(ref(services.database, `projectMembers/${projectId}`)),
+  ]);
+}
+
+async function ensureProfile(firebaseUser: User): Promise<WorkspaceUser> {
+  const services = getFirebaseServices();
+  if (!services) throw new Error('Firebase is not configured');
+  const profileRef = ref(services.database, `users/${firebaseUser.uid}`);
+  const snapshot = await get(profileRef);
+  if (!snapshot.exists()) {
+    const profile = {
+      email: firebaseUser.email ?? '',
+      displayName:
+        firebaseUser.displayName ??
+        firebaseUser.email?.split('@')[0] ??
+        'Employee',
+      role: 'employee' as UserRole,
+      createdAt: new Date().toISOString(),
+    };
+    await set(profileRef, profile);
+    return { uid: firebaseUser.uid, ...profile };
+  }
+  const profile = snapshot.val();
+  return {
+    uid: firebaseUser.uid,
+    email: profile.email ?? firebaseUser.email ?? '',
+    displayName: profile.displayName ?? firebaseUser.email ?? 'Team member',
+    role: profile.role === 'admin' ? 'admin' : 'employee',
+  };
+}
+
+export function observeAuth(
+  listener: (user: WorkspaceUser | null) => void,
+  error: (message: string) => void,
+) {
+  const services = getFirebaseServices();
+  if (!services) return () => {};
+  void setPersistence(services.auth, browserLocalPersistence).catch(() => {});
+  return onAuthStateChanged(
+    services.auth,
+    (firebaseUser) => {
+      if (!firebaseUser) listener(null);
+      else
+        void ensureProfile(firebaseUser)
+          .then(listener)
+          .catch((cause) => error(cause.message));
+    },
+    (cause) => error(cause.message),
+  );
+}
+
+export async function emailSignIn(email: string, password: string) {
+  const services = getFirebaseServices();
+  if (!services) throw new Error('Firebase is not configured');
+  await signInWithEmailAndPassword(services.auth, email, password);
+}
+
+export async function emailSignUp(email: string, password: string) {
+  const services = getFirebaseServices();
+  if (!services) throw new Error('Firebase is not configured');
+  const credential = await createUserWithEmailAndPassword(
+    services.auth,
+    email,
+    password,
+  );
+  await ensureProfile(credential.user);
+}
+
+export async function workspaceSignOut() {
+  const services = getFirebaseServices();
+  if (services) await signOut(services.auth);
+}
+
+export function subscribeWorkspace(
+  user: WorkspaceUser,
+  listener: (snapshot: WorkspaceSnapshot) => void,
+  error: (message: string) => void,
+) {
+  const services = getFirebaseServices();
+  if (!services) return () => {};
+  const state: WorkspaceSnapshot = { projects: [], rates: [], revisions: [] };
+  const technical = new Map<string, JsonRecord>();
+  const financial = new Map<string, JsonRecord>();
+  const projectUnsubscribers = new Map<string, Unsubscribe[]>();
+  const employeePendingProjects = new Set<string>();
+  let adminTechnicalReady = user.role !== 'admin';
+  let adminFinancialReady = user.role !== 'admin';
+  const emit = () => {
+    if (!adminTechnicalReady || !adminFinancialReady) return;
+    if (employeePendingProjects.size) return;
+    state.projects = [...technical.entries()]
+      .map(([id, value]) => combineProject(value, financial.get(id)))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    listener({
+      ...state,
+      projects: [...state.projects],
+      rates: [...state.rates],
+      revisions: [...state.revisions],
+    });
+  };
+  const watchProject = (projectId: string) => {
+    if (projectUnsubscribers.has(projectId)) return;
+    const subscriptions = [
+      onValue(
+        ref(services.database, `projectsTechnical/${projectId}`),
+        (snapshot) => {
+          if (snapshot.exists()) technical.set(projectId, snapshot.val());
+          else technical.delete(projectId);
+          employeePendingProjects.delete(projectId);
+          emit();
+        },
+        (cause) => error(cause.message),
+      ),
+    ];
+    if (user.role === 'admin')
+      subscriptions.push(
+        onValue(
+          ref(services.database, `projectsFinancial/${projectId}`),
+          (snapshot) => {
+            if (snapshot.exists()) financial.set(projectId, snapshot.val());
+            else financial.delete(projectId);
+            emit();
+          },
+          (cause) => error(cause.message),
+        ),
+      );
+    projectUnsubscribers.set(projectId, subscriptions);
+  };
+  const subscriptions: Unsubscribe[] = [];
+  if (user.role === 'admin') {
+    subscriptions.push(
+      onValue(
+        ref(services.database, 'projectsTechnical'),
+        (snapshot) => {
+          const all = (snapshot.val() ?? {}) as Record<string, JsonRecord>;
+          technical.clear();
+          Object.entries(all).forEach(([id, value]) =>
+            technical.set(id, value),
+          );
+          adminTechnicalReady = true;
+          emit();
+        },
+        (cause) => error(cause.message),
+      ),
+      onValue(
+        ref(services.database, 'projectsFinancial'),
+        (snapshot) => {
+          const all = (snapshot.val() ?? {}) as Record<string, JsonRecord>;
+          financial.clear();
+          Object.entries(all).forEach(([id, value]) =>
+            financial.set(id, value),
+          );
+          adminFinancialReady = true;
+          emit();
+        },
+        (cause) => error(cause.message),
+      ),
+    );
+  } else {
+    subscriptions.push(
+      onValue(
+        ref(services.database, `userProjects/${user.uid}`),
+        (snapshot) => {
+          const ids = Object.keys(snapshot.val() ?? {});
+          ids.forEach((id) => {
+            if (!projectUnsubscribers.has(id)) employeePendingProjects.add(id);
+            watchProject(id);
+          });
+          for (const [id, unsubs] of projectUnsubscribers) {
+            if (ids.includes(id)) continue;
+            unsubs.forEach((unsubscribe) => unsubscribe());
+            projectUnsubscribers.delete(id);
+            technical.delete(id);
+            financial.delete(id);
+          }
+          emit();
+        },
+        (cause) => error(cause.message),
+      ),
+    );
+  }
+  if (user.role === 'employee')
+    subscriptions.push(
+      onValue(
+        ref(services.database, 'rateCardTechnical'),
+        (snapshot) => {
+          const rates = Object.values(snapshot.val() ?? {}) as JsonRecord[];
+          state.rates = rates.map((rate) => combineRate(rate));
+          emit();
+        },
+        (cause) => error(cause.message),
+      ),
+    );
+  if (user.role === 'admin') {
+    let rateTech: Record<string, JsonRecord> = {};
+    let rateMoney: Record<string, JsonRecord> = {};
+    let rateTechReady = false;
+    let rateMoneyReady = false;
+    const emitRates = () => {
+      if (!rateTechReady || !rateMoneyReady) return;
+      state.rates = Object.values(rateTech).map((rate) =>
+        combineRate(rate, rateMoney[rate.id]),
+      );
+      emit();
+    };
+    subscriptions.push(
+      onValue(
+        ref(services.database, 'rateCardTechnical'),
+          (snapshot) => {
+            rateTech = snapshot.val() ?? {};
+            rateTechReady = true;
+            emitRates();
+        },
+        (cause) => error(cause.message),
+      ),
+      onValue(
+        ref(services.database, 'rateCardFinancial'),
+          (snapshot) => {
+            rateMoney = snapshot.val() ?? {};
+            rateMoneyReady = true;
+            emitRates();
+        },
+        (cause) => error(cause.message),
+      ),
+      onValue(
+        ref(services.database, 'firmSettings'),
+        (snapshot) => {
+          state.settings = snapshot.val() ?? undefined;
+          emit();
+        },
+        (cause) => error(cause.message),
+      ),
+      onValue(
+        ref(services.database, 'revisions'),
+        (snapshot) => {
+          state.revisions = Object.values(snapshot.val() ?? {});
+          emit();
+        },
+        (cause) => error(cause.message),
+      ),
+    );
+  }
+  return () => {
+    subscriptions.forEach((unsubscribe) => unsubscribe());
+    projectUnsubscribers.forEach((unsubs) =>
+      unsubs.forEach((unsubscribe) => unsubscribe()),
+    );
+  };
+}
+
+const legacyKeys = {
+  projects: 'interix.projects.v1',
+  rates: 'interix.rates.v1',
+  settings: 'interix.settings.v1',
+  revisions: 'interix.revisions.v1',
+};
+
+function legacyRead<T>(key: string): T | undefined {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function loadLocalMigrationData(
+  uid?: string,
+): Promise<LocalMigrationData> {
+  if (
+    uid &&
+    (await indexedDbStorage
+      .get<boolean>(`firebase-migration:${uid}:completed`)
+      .catch(() => false))
+  )
+    return { projects: [], rates: [], revisions: [] };
+  const [projects, rates, settings, revisions] = await Promise.all([
+    indexedDbStorage.get<Project[]>('projects').catch(() => undefined),
+    indexedDbStorage.get<RateCardItem[]>('rates').catch(() => undefined),
+    indexedDbStorage.get<FirmSettings>('settings').catch(() => undefined),
+    indexedDbStorage.get<Revision[]>('revisions').catch(() => undefined),
+  ]);
+  return {
+    projects: projects ?? legacyRead<Project[]>(legacyKeys.projects) ?? [],
+    rates: rates ?? legacyRead<RateCardItem[]>(legacyKeys.rates) ?? [],
+    settings: settings ?? legacyRead<FirmSettings>(legacyKeys.settings),
+    revisions: revisions ?? legacyRead<Revision[]>(legacyKeys.revisions) ?? [],
+  };
+}
+
+export async function migrateLocalWorkspace(
+  user: WorkspaceUser,
+  local: LocalMigrationData,
+  current: WorkspaceSnapshot,
+) {
+  if (user.role !== 'admin')
+    throw new Error('Only an administrator can import local financial data');
+  const projectIds = new Set(current.projects.map((project) => project.id));
+  const projects = local.projects.filter(
+    (project) => !projectIds.has(project.id),
+  );
+  await saveProjects(user, current.projects, [
+    ...current.projects,
+    ...projects,
+  ]);
+  const rateIds = new Set(current.rates.map((rate) => rate.id));
+  const rates = local.rates.filter((rate) => !rateIds.has(rate.id));
+  if (rates.length)
+    await saveRates(current.rates, [...current.rates, ...rates]);
+  if (local.settings && !current.settings)
+    await saveSettings(undefined, local.settings);
+  const revisionIds = new Set(current.revisions.map((revision) => revision.id));
+  const revisions = local.revisions.filter(
+    (revision) => !revisionIds.has(revision.id),
+  );
+  if (revisions.length)
+    await saveRevisions(current.revisions, [
+      ...current.revisions,
+      ...revisions,
+    ]);
+  const services = getFirebaseServices();
+  if (services) {
+    const access: Record<string, boolean> = {};
+    projects.forEach((project) => {
+      access[`userProjects/${user.uid}/${project.id}`] = true;
+    });
+    if (Object.keys(access).length)
+      await update(ref(services.database), access);
+  }
+  await indexedDbStorage.set(`firebase-migration:${user.uid}:completed`, true);
+  return projects.length;
+}
