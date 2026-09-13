@@ -18,6 +18,7 @@ import {
   type Unsubscribe,
 } from 'firebase/database';
 import { normalizeProject } from '@/domain/boq';
+import { financialTemplates, initializeMissingFinancials, resolveTemplate } from '@/domain/financialInitialization';
 import type { WorkspaceUser, UserRole } from '@/domain/auth';
 import type {
   FirmSettings,
@@ -65,6 +66,7 @@ const ordered = <T>(
 export function itemTechnical(item: QuoteItem) {
   const {
     enabled: _enabled,
+    rateSource: _rateSource,
     rates: _rates,
     tierOverride: _tierOverride,
     rateOverride: _rateOverride,
@@ -79,6 +81,7 @@ export function itemTechnical(item: QuoteItem) {
 export function itemFinancial(item: QuoteItem) {
   return clean({
     enabled: item.enabled,
+    rateSource: item.rateSource,
     rates: item.rates,
     tierOverride: item.tierOverride,
     rateOverride: item.rateOverride,
@@ -123,6 +126,7 @@ export function projectTechnical(project: Project, ownerId?: string) {
 
 export function projectFinancial(project: Project) {
   return clean({
+    feesInitialized: true,
     defaultTier: project.defaultTier,
     projectDiscount: project.projectDiscount,
     showRates: project.showRates,
@@ -144,6 +148,7 @@ export function projectFinancial(project: Project) {
 export function combineProject(
   technical: JsonRecord,
   financial?: JsonRecord,
+  templates: RateCardItem[] = [],
 ): Project {
   const floors = ordered(technical.floors, technical.floorOrder);
   const rooms = ordered<JsonRecord>(technical.rooms, technical.roomOrder).map(
@@ -153,10 +158,12 @@ export function combineProject(
       floorId: room.floorId,
       items: ordered<JsonRecord>(room.items, room.itemOrder).map((item) => {
         const money = financial?.rooms?.[room.id]?.items?.[item.id] ?? {};
+        const template = money.rateSource === 'template' ? resolveTemplate(item as QuoteItem, templates) : undefined;
         return {
           ...item,
           enabled: money.enabled ?? true,
-          rates: money.rates ?? zeroRates,
+          rateSource: money.rateSource,
+          rates: template?.rates ?? money.rates ?? zeroRates,
           tierOverride: money.tierOverride,
           rateOverride: money.rateOverride,
           discount: money.discount ?? 0,
@@ -367,6 +374,19 @@ export async function saveRates(
   ]);
 }
 
+// The existing admin client fills missing records on load. No backend or
+// employee financial permissions are needed. Existing records always win.
+export async function repairProjectFinancials(user: WorkspaceUser, projectId: string, templates: RateCardItem[]) {
+  const services = getFirebaseServices();
+  if (!services || user.role !== 'admin') throw new Error('Administrator access required');
+  const technical = await get(ref(services.database, `projectsTechnical/${projectId}`));
+  if (!technical.exists()) return;
+  await runTransaction(ref(services.database, `projectsFinancial/${projectId}`), (current) => {
+    const next = initializeMissingFinancials(technical.val(), current, templates);
+    return JSON.stringify(current) === JSON.stringify(next) ? undefined : next;
+  }, { applyLocally: false });
+}
+
 export async function saveSettings(
   previous: FirmSettings | undefined,
   settings: FirmSettings,
@@ -476,11 +496,31 @@ export function subscribeWorkspace(
   const employeePendingProjects = new Set<string>();
   let adminTechnicalReady = user.role !== 'admin';
   let adminFinancialReady = user.role !== 'admin';
+  let adminRatesReady = user.role !== 'admin';
+  let active = true;
+  const repairs = new Set<string>();
   const emit = () => {
-    if (!adminTechnicalReady || !adminFinancialReady) return;
+    if (!active || !adminTechnicalReady || !adminFinancialReady || !adminRatesReady) return;
     if (employeePendingProjects.size) return;
     state.projects = [...technical.entries()]
-      .map(([id, value]) => combineProject(value, financial.get(id)))
+      .map(([id, value]) => {
+        const current = financial.get(id);
+        if (user.role !== 'admin') return combineProject(value);
+        const initialized = initializeMissingFinancials(value as Parameters<typeof initializeMissingFinancials>[0], current ?? null, state.rates);
+        if (JSON.stringify(initialized) !== JSON.stringify(current) && !repairs.has(id)) {
+          repairs.add(id);
+          void repairProjectFinancials(user, id, state.rates)
+            .then(() => {
+              repairs.delete(id);
+              // A technical item may have arrived while this repair was in flight.
+              emit();
+            }, () => {
+              repairs.delete(id);
+              if (active) error('Could not initialize project pricing. Check your connection and admin permissions.');
+            });
+        }
+        return combineProject(value, initialized, state.rates);
+      })
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     listener({
       ...state,
@@ -589,15 +629,14 @@ export function subscribeWorkspace(
       ),
     );
   if (user.role === 'admin') {
-    let rateTech: Record<string, JsonRecord> = {};
-    let rateMoney: Record<string, JsonRecord> = {};
+    let rateTech: Parameters<typeof financialTemplates>[0] = {};
+    let rateMoney: Parameters<typeof financialTemplates>[1] = {};
     let rateTechReady = false;
     let rateMoneyReady = false;
     const emitRates = () => {
       if (!rateTechReady || !rateMoneyReady) return;
-      state.rates = Object.values(rateTech).map((rate) =>
-        combineRate(rate, rateMoney[rate.id]),
-      );
+      state.rates = financialTemplates(rateTech, rateMoney);
+      adminRatesReady = true;
       emit();
     };
     subscriptions.push(
@@ -638,6 +677,7 @@ export function subscribeWorkspace(
     );
   }
   return () => {
+    active = false;
     subscriptions.forEach((unsubscribe) => unsubscribe());
     projectUnsubscribers.forEach((unsubs) =>
       unsubs.forEach((unsubscribe) => unsubscribe()),

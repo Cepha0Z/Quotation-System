@@ -52,6 +52,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { firmSettings as ds, rateCard as dr } from '@/domain/sample';
+import { createDefaultFees } from '@/domain/projectDefaults';
 import {
   createProjectExcelFile,
   excelBytesToBase64,
@@ -784,32 +785,7 @@ function NewProject({ s }: { s: Store }) {
       updatedAt: new Date().toISOString(),
       floors,
       rooms: chosenSpaces.length ? chosenSpaces : fallback,
-      fees: [
-        {
-          id: uid(),
-          name: 'Design Fee',
-          method: 'sqft',
-          value: 50,
-          discount: 0,
-          enabled: true,
-        },
-        {
-          id: uid(),
-          name: '3D / Drawing',
-          method: 'flat',
-          value: 35000,
-          discount: 0,
-          enabled: true,
-        },
-        {
-          id: uid(),
-          name: 'Site Supervision',
-          method: 'flat',
-          value: 45000,
-          discount: 0,
-          enabled: true,
-        },
-      ],
+      fees: createDefaultFees(),
       projectDiscount: 0,
       showRates: true,
     };
@@ -1458,6 +1434,7 @@ function ProjectTable({
 const fresh = (r?: RateCardItem): QuoteItem => ({
   id: uid(),
   rateCardId: r?.id,
+  rateSource: r ? 'template' : 'project',
   name: r?.name ?? 'New Item',
   description: r?.description ?? '',
   enabled: true,
@@ -3455,6 +3432,11 @@ function Item({
                     value={rate}
                     onChange={(v) => patch({ rateOverride: v })}
                   />
+                  {item.rateCardId && (
+                    <Button type="button" variant="ghost" onClick={() => patch({ rateSource: 'template', rateOverride: undefined })}>
+                      Use master rate
+                    </Button>
+                  )}
                 </label>
                 <div className="price-formula">
                   <span>

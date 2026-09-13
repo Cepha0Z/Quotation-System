@@ -51,6 +51,7 @@ export interface SubUnit {
 export interface QuoteItem {
   id: string;
   rateCardId?: string;
+  rateSource?: 'template' | 'project';
   name: string;
   description: string;
   enabled: boolean;

@@ -1,7 +1,5 @@
 import type { FirmSettings, QuoteItem, RateCardItem } from './types';
 
-const id = () => crypto.randomUUID();
-
 export const rateCard: RateCardItem[] = [
   [
     'Wardrobe',
@@ -71,7 +69,7 @@ export const rateCard: RateCardItem[] = [
     [0, 0, 0],
   ],
 ].map(([name, description, unit, rates]) => ({
-  id: id(),
+  id: `template-${String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
   name: name as string,
   description: description as string,
   unit: unit as QuoteItem['measurementType'],

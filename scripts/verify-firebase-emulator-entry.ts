@@ -5,6 +5,13 @@ import { connectDatabaseEmulator, getDatabase, get, ref, set, update, runTransac
 import { saveProjects, combineProject, loadProjectAssignments, setProjectAssignment, subscribeWorkspace } from '../storage/firebaseWorkspace';
 import type { Project } from '../domain/types';
 import type { WorkspaceUser } from '../domain/auth';
+import { repairProjectFinancials } from '../storage/firebaseWorkspace';
+import { financialTemplates } from '../domain/financialInitialization';
+import { createDefaultFees } from '../domain/projectDefaults';
+import { rateCard, firmSettings } from '../domain/sample';
+import { createProjectExcelFile } from '../domain/excelExport';
+import * as X from 'xlsx-js-style';
+import { itemBaseRate, itemTotal } from '../domain/pricing';
 
 async function main() {
   const namespace = `demo-boq-${Date.now()}`;
@@ -12,7 +19,7 @@ async function main() {
   const admin: WorkspaceUser = { uid: 'admin', email: 'admin@example.test', displayName: 'Admin', role: 'admin' };
   const employee: WorkspaceUser = { uid: 'employee', email: 'employee@example.test', displayName: 'Employee', role: 'employee' };
   const outsider: WorkspaceUser = { ...employee, uid: 'outsider' };
-  const apps = [admin, employee, outsider, employee].map((user, index) => {
+  const apps = [admin, employee, outsider, employee, admin].map((user, index) => {
     const app = initializeApp({ projectId: namespace, databaseURL: `${endpoint}?ns=${namespace}` }, `test-${index}`);
     const database = getDatabase(app);
     connectDatabaseEmulator(database, '127.0.0.1', 9000, { mockUserToken: { sub: user.uid } });
@@ -40,6 +47,7 @@ async function main() {
     }] }], fees: [], projectDiscount: 0, showRates: true,
   };
   let stop = () => {};
+  let stopAdmin = () => {};
   try {
     await rest('.settings/rules', JSON.parse(readFileSync('database.rules.json', 'utf8')));
     await rest('users', Object.fromEntries([admin, employee, outsider].map(({ uid, ...profile }) => [uid, profile])));
@@ -120,8 +128,130 @@ async function main() {
     console.log('PASS: financial read/write denial, technical financial injection denial, escalation denial, revocation and self-regrant denial');
     await update(ref(bossDb, 'projectsFinancial/project'), { projectDiscount: 20 });
     console.log('PASS: admin financial access retained; rules accepted by Firebase emulator');
+
+    const repair = async (id: string) => {
+      selectClient(0);
+      const templates = financialTemplates(
+        (await get(ref(bossDb, 'rateCardTechnical'))).val() ?? {},
+        (await get(ref(bossDb, 'rateCardFinancial'))).val() ?? {},
+      );
+      await repairProjectFinancials(admin, id, templates);
+    };
+    await repair(own.id);
+    assert.equal((await get(ref(bossDb, `projectsFinancial/${own.id}/fees/design/name`))).val(), 'Design Fee');
+    const wardrobe = { ...rateCard.find((row) => row.name === 'Wardrobe')!, id: 'office-wardrobe',
+      rates: { standard: 1777, premium: 2222, luxury: 3333 } };
+    await set(ref(bossDb, `rateCardTechnical/${wardrobe.id}`), {
+      id: wardrobe.id, name: wardrobe.name, description: wardrobe.description, unit: wardrobe.unit,
+    });
+    await set(ref(bossDb, `rateCardFinancial/${wardrobe.id}`), { rates: wardrobe.rates });
+    const pricedTemplates = [wardrobe, ...rateCard.filter((row) => row.name !== 'Wardrobe')];
+    const templateProject: Project = { ...project, id: 'admin-template-project', fees: createDefaultFees(),
+      rooms: [{ ...project.rooms[0], items: pricedTemplates.map((template, index) => ({
+        ...project.rooms[0].items[0], id: `priced-${index}`, rateCardId: template.id,
+        name: template.name, measurementType: template.unit, rates: template.rates, discount: 0,
+        rateSource: 'template',
+      })) }],
+    };
+    selectClient(0);
+    await saveProjects(admin, [], [templateProject]);
+    const bossOriginal = (await get(ref(bossDb, `projectsFinancial/${templateProject.id}`))).val();
+    await repair(templateProject.id);
+    assert.deepEqual((await get(ref(bossDb, `projectsFinancial/${templateProject.id}`))).val(), bossOriginal);
+    selectClient(1);
+    const employeeProject = { ...templateProject, id: 'employee-template-project' };
+    await saveProjects(employee, [], [employeeProject]);
+    await assert.rejects(get(ref(empDb, `projectsFinancial/${employeeProject.id}`)));
+    await repair(employeeProject.id);
+    const employeeMoney = (await get(ref(bossDb, `projectsFinancial/${employeeProject.id}`))).val();
+    for (const [index, template] of pricedTemplates.entries())
+      assert.deepEqual(employeeMoney.rooms.room.items[`priced-${index}`].rates, template.rates);
+    assert.deepEqual(employeeMoney.fees, bossOriginal.fees);
+    await assert.rejects(get(ref(empDb, `projectsFinancial/${employeeProject.id}`)));
+    await assert.rejects(set(ref(empDb, `projectsFinancial/${employeeProject.id}/fees/design/value`), 1));
+    const adminSecondDb = selectClient(4);
+    const bossView = combineProject(
+      (await get(ref(adminSecondDb, `projectsTechnical/${employeeProject.id}`))).val(),
+      (await get(ref(adminSecondDb, `projectsFinancial/${employeeProject.id}`))).val(),
+    );
+    assert.equal(bossView.rooms[0].items[0].rates.standard, 1777);
+    const bossEdited = structuredClone(bossView);
+    bossEdited.fees[0].value = 87;
+    bossEdited.rooms[0].items[0].rateOverride = 999;
+    bossEdited.rooms[0].items[1].rates = { standard: 0, premium: 0, luxury: 0 };
+    bossEdited.rooms[0].items[1].rateSource = 'project';
+    await saveProjects(admin, [bossView], [bossEdited]);
+    await update(ref(bossDb, `rateCardFinancial/${wardrobe.id}/rates`), { standard: 8888 });
+    await repair(employeeProject.id);
+    let protectedMoney = (await get(ref(bossDb, `projectsFinancial/${employeeProject.id}`))).val();
+    assert.equal(protectedMoney.fees.design.value, 87);
+    assert.equal(protectedMoney.rooms.room.items['priced-0'].rateOverride, 999);
+    assert.equal(protectedMoney.rooms.room.items['priced-0'].rates.standard, 1777);
+    assert.equal(protectedMoney.rooms.room.items['priced-1'].rates.standard, 0);
+    // An intentionally emptied fee list must not be re-created on future edits.
+    await saveProjects(admin, [bossEdited], [{ ...bossEdited, fees: [] }]);
+    await repair(employeeProject.id);
+    protectedMoney = (await get(ref(bossDb, `projectsFinancial/${employeeProject.id}`))).val();
+    assert.equal(protectedMoney.fees, undefined);
+    // Employee adds a legacy random-ID template item and moves a priced item.
+    selectClient(1);
+    const technicalBefore = combineProject((await get(ref(empDb, `projectsTechnical/${employeeProject.id}`))).val());
+    const technicalAfter = structuredClone(technicalBefore);
+    technicalAfter.rooms[0].items.push({ ...technicalBefore.rooms[0].items[0], id: 'legacy-item', rateCardId: 'old-browser-random-id' });
+    const moved = technicalAfter.rooms[0].items.shift()!;
+    technicalAfter.rooms.push({ id: 'moved-room', name: 'Another Room', floorId: 'floor', items: [moved] });
+    await saveProjects(employee, [technicalBefore], [technicalAfter]);
+    await repair(employeeProject.id);
+    protectedMoney = (await get(ref(bossDb, `projectsFinancial/${employeeProject.id}`))).val();
+    assert.equal(protectedMoney.rooms.room.items['legacy-item'].rates.standard, 8888);
+    assert.equal(protectedMoney.rooms['moved-room'].items['priced-0'].rateOverride, 999);
+    const once = JSON.stringify(protectedMoney);
+    await repair(employeeProject.id);
+    assert.equal(JSON.stringify((await get(ref(bossDb, `projectsFinancial/${employeeProject.id}`))).val()), once);
+    // Exercise the real admin subscription: automatic repair, current master
+    // rates and exporter/preview calculation inputs, without a backend.
+    selectClient(1);
+    const automaticProject = { ...templateProject, id: 'auto-repair-project' };
+    await saveProjects(employee, [], [automaticProject]);
+    selectClient(0);
+    let adminProjects: Project[] = [];
+    const syncErrors: string[] = [];
+    stopAdmin = subscribeWorkspace(admin, (snapshot) => { adminProjects = snapshot.projects; }, (error) => syncErrors.push(error));
+    await waitFor(() => adminProjects.some((row) => row.id === automaticProject.id && row.fees.length === 3));
+    const adminItem = () => adminProjects.find((row) => row.id === templateProject.id)!.rooms[0].items[0];
+    const employeeItem = () => adminProjects.find((row) => row.id === automaticProject.id)!.rooms[0].items[0];
+    assert.equal(itemBaseRate(adminItem(), 'standard'), 8888);
+    assert.equal(itemBaseRate(employeeItem(), 'standard'), 8888);
+    await update(ref(bossDb, `rateCardFinancial/${wardrobe.id}/rates`), { standard: 1500 });
+    await waitFor(() => itemBaseRate(adminItem(), 'standard') === 1500 && itemBaseRate(employeeItem(), 'standard') === 1500);
+    assert.equal(itemTotal(employeeItem(), 'standard'), 48000);
+    const verifyExport = async (expectedRate: number, expectedAmount: number) => {
+      const output = await createProjectExcelFile(adminProjects.find((row) => row.id === automaticProject.id)!, firmSettings);
+      const workbook = X.read(output.bytes, { type: 'array' });
+      const rows = X.utils.sheet_to_json<unknown[]>(workbook.Sheets.Millwork, { header: 1 });
+      const wardrobeRow = rows.find((row) => String(row[1]).startsWith('Wardrobe'))!;
+      assert.equal(wardrobeRow[5], expectedRate);
+      assert.equal(wardrobeRow[6], expectedAmount);
+    };
+    await verifyExport(1500, 48000);
+    const beforeOverride = adminProjects.find((row) => row.id === automaticProject.id)!;
+    const afterOverride = structuredClone(beforeOverride);
+    afterOverride.rooms[0].items[0].rateOverride = 1350;
+    afterOverride.fees[0].value = 99;
+    await saveProjects(admin, [beforeOverride], [afterOverride]);
+    await update(ref(bossDb, `rateCardFinancial/${wardrobe.id}/rates`), { standard: 2000 });
+    await waitFor(() => itemBaseRate(adminItem(), 'standard') === 2000 && itemBaseRate(employeeItem(), 'standard') === 1350);
+    assert.equal(itemTotal(employeeItem(), 'standard'), 43200);
+    await verifyExport(1350, 43200);
+    assert.equal(adminProjects.find((row) => row.id === automaticProject.id)!.fees[0].value, 99);
+    assert.equal((await get(ref(adminSecondDb, `projectsFinancial/${automaticProject.id}/fees/design/value`))).val(), 99);
+    await assert.rejects(get(ref(empDb, `projectsFinancial/${automaticProject.id}`)));
+    assert.deepEqual(syncErrors, []);
+    console.log('PASS: frontend-only automatic repair, realtime master-rate changes, fixed item overrides, fees and export calculation inputs');
+    console.log('PASS: both fresh projects, all templates, cloud rate precedence, fees, cross-client admin edits, legacy repair, moves, zero/override preservation, idempotence and employee financial denial');
   } finally {
     stop();
+    stopAdmin();
     await Promise.all(apps.map(({ app }) => deleteApp(app)));
   }
 }

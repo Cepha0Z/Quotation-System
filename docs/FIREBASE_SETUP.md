@@ -1,41 +1,39 @@
 # Firebase production setup
 
-The application uses Firebase Authentication and Realtime Database. It does not use Firebase Admin credentials in the browser.
+The app uses Firebase Authentication and Realtime Database directly from React. It requires no Cloud Functions, custom backend, Admin SDK, service-account credentials, or Blaze upgrade.
 
-## Environment
+## Environment and roles
 
-Copy `.env.example` to `.env.local` and fill every value from Firebase Console → Project settings → Your apps → Web app. The Realtime Database URL must match the database instance created for `nebulous-boq`.
+Copy `.env.example` to `.env.local` and fill every value from Firebase Console → Project settings → Your apps → Web app. Use the correct database URL. Keep Email/Password authentication enabled and add production hostnames to Authentication → Settings → Authorized domains.
 
-## Authentication
+New users get `/users/{uid}/role: employee`. To bootstrap an admin, sign in once, change that profile's role to `admin` in Firebase Console, then sign out and back in. Only admins or Firebase Console can promote users.
 
-Keep Email/Password enabled. Add every production hostname (including `interix-quotation-studio.cephajj.chatgpt.site`) under Authentication → Settings → Authorized domains.
+## Rules and assignment
 
-New accounts create a `/users/{uid}` profile with role `employee`. To bootstrap the first boss account:
+Publish `database.rules.json` before production use. Employee financial UI remains hidden. The existing financial read/write restrictions are also retained; the simplified rate handling does not require relaxing them.
 
-1. Create/sign in to the account once in the app.
-2. In Realtime Database, change `/users/{uid}/role` from `employee` to `admin`.
-3. Sign out and back in so the app reloads the profile.
+Creators get their own `userProjects` link atomically with technical project creation. Admins assign employees using Builder → project actions → **Assign employees**. Assignment updates both `/userProjects/{uid}/{projectId}` and `/projectMembers/{projectId}/{uid}`; revocation removes both. Employees appear in the picker after signing in once. Save the assignment dialog to repair older inconsistent membership/discovery links.
 
-Only an existing admin or Firebase Console can promote another account.
+## Master rates and overrides
 
-## Database rules
+New template-backed items store a template reference and financial `rateSource: template`. The admin workspace resolves their rates from the current master rate card whenever projects or rates change. Calculations, previews and exporters receive that resolved project data. Editing the master updates linked items; project snapshots are not themselves master templates.
 
-Publish `database.rules.json` to the Realtime Database Rules tab before production use. The file defaults to deny and separates technical and financial data so employees cannot read or write financial values.
+An item's explicit `rateOverride` takes precedence, including an intentional zero. **Use master rate** removes that override and explicitly links the item to its template. Legacy financial records without a source marker stay project-specific; the app cannot safely infer whether a historical stored rate was an intentional override. Existing fees and prices are never replaced just because they differ from today's master.
 
-## Project access
+Bundled template IDs are stable across browsers. Legacy random template IDs may resolve by a unique name/unit match. Unresolvable historical references require admin review rather than guessing a rate.
 
-Project creators receive their own `/userProjects/{uid}/{projectId}: true` link atomically with project creation. Employee creation does not require reading an unassigned project.
+## Employee projects and missing financial records
 
-As an admin, open the project's Builder → project actions (three dots) → **Assign employees**. Select employees and save. Employees appear after they have signed in at least once and created their app profile. Assignment grants technical access only; it never grants financial access.
+Employees create the same technical projects/items that admins later open. On loading the workspace, the authenticated admin client supplies missing financial defaults and saves them with missing-only transactions. It also does this for new technical items arriving through realtime updates. This uses the existing admin permissions—no background service.
 
-Assignments update both `/userProjects/{uid}/{projectId}` (discovery) and `/projectMembers/{projectId}/{uid}` (membership) in one atomic write. Removing an assignment deletes both links. If maintaining assignments manually, always update/remove both links. A legacy membership-only assignment is not discoverable by the employee; opening the dialog and saving repairs inconsistent links for listed employees.
+Until an admin opens the app, an employee-only project's financial records may not yet be persisted. The admin sees the resolved defaults immediately on loading, and the client then saves them. Connection/permission failures are reported. No separate deployment or billing feature is required.
 
-Publish the updated rules together with the application update: the rules permit an employee's own creation link only when the project is also newly created in that atomic write. Admin-only user-directory reads support the assignment picker. No financial permissions have changed.
+The normal new-project fee list is shared with this initialization. A completely missing financial record gets default fees; existing records, including empty fee structures, are preserved to avoid overwriting intentional edits. `feesInitialized` retains that choice. Historical projects with ambiguous stored zeros/empty fees require admin review.
 
-## Local permission regression tests
+## Tests
 
-`npm run test:firebase-security` checks serialization, financial separation and merge behavior. For actual Firebase rules enforcement, start a Realtime Database emulator at `127.0.0.1:9000`, then run `node scripts/verify-firebase-emulator.mjs`. The latter loads the repository rules into a unique `demo-boq-*` namespace and exercises production persistence functions with simulated admin, employee, unrelated-user and independent-client sessions. It never uses production configuration or accounts.
+Run `npx tsc --noEmit`, `npm run test:firebase-security`, `npm run test:excel-export`, and `npm run build:ios`. For real database-rules checks, start the Realtime Database emulator at `127.0.0.1:9000` and run `node scripts/verify-firebase-emulator.mjs`. Tests use isolated `demo-boq-*` namespaces and simulated accounts, not production credentials.
 
 ## Local migration
 
-The old IndexedDB data is not deleted. An admin who signs in on a device containing local projects sees an explicit one-time **Import local data** action. Existing Firebase IDs win; conflicting local records are skipped rather than overwritten.
+IndexedDB projects are not deleted. An admin on a device containing local data can use **Import local data**. Existing Firebase IDs win and conflicting local projects are skipped. Imported legacy financial values remain project-specific until explicitly linked to the master rate.
