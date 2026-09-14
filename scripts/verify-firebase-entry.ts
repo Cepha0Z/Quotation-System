@@ -96,6 +96,16 @@ assert.equal(employeeView.fees.length, 0);
 assert.equal(adminView.rooms[0].items[0].rateOverride, 175);
 assert.equal(adminView.projectDiscount, 100);
 assert.equal(adminView.fees[0].value, 1000);
+const flatProject = structuredClone(project);
+flatProject.rooms[0].items[0].pricingMode = 'lump-sum';
+const flatFinancial = projectFinancial(flatProject);
+assert.equal(
+  flatFinancial.rooms['room-1'].items['item-1'].pricingMode,
+  'lump-sum',
+);
+const flatReloaded = combineProject(technical, flatFinancial);
+assert.equal(flatReloaded.rooms[0].items[0].pricingMode, 'lump-sum');
+assert.equal(itemTotal(flatReloaded.rooms[0].items[0], 'premium'), 150);
 
 const bundledWardrobe = rateCard.find(
   (rate) => rate.id === 'template-wardrobe',

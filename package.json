@@ -11,6 +11,7 @@
     "db:generate": "drizzle-kit generate",
     "build:ios": "node scripts/build-capacitor.mjs",
     "start": "wrangler dev --config dist/server/wrangler.json",
+    "test:pricing": "node scripts/verify-pricing.mjs",
     "test:excel-export": "node scripts/verify-excel-export.mjs",
     "test:firebase-security": "node scripts/verify-firebase.mjs",
     "lint": "oxlint",

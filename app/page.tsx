@@ -4354,7 +4354,9 @@ function ProjectRates({ s }: { s: Store }) {
                             }
                           }}
                         />
-                        {mode === 'unit' && <small>/ {unit}</small>}
+                        <small>
+                          {mode === 'unit' ? `/ ${unit}` : 'Total'}
+                        </small>
                       </div>
                       <div
                         className={`rate-source ${

@@ -108,10 +108,18 @@ const project: Project = {
       items: [
         makeItem('lump', 'Site protection package', 'Civil Work', {
           pricingMode: 'lump-sum',
-          measurementType: 'flat',
-          unit: 'Lump Sum',
-          quantity: 3,
-          rateOverride: 18_750,
+          measurementType: 'sqft',
+          measureMode: 'quantity',
+          unit: 'Sq.ft',
+          quantity: 32,
+          rateOverride: 9_000,
+        }),
+        makeItem('area-audit', 'Floor tile pricing audit', 'Civil Work', {
+          measurementType: 'sqft',
+          measureMode: 'quantity',
+          unit: 'Sq.ft',
+          quantity: 32,
+          rateOverride: 9_000,
         }),
         makeItem('components', 'Media console', 'Millwork', {
           measurementType: 'rft',
@@ -258,13 +266,27 @@ async function main() {
       row[1].startsWith('Site protection package'),
   );
   if (
-    fixedAmountRow?.[3] !== 3 ||
-    fixedAmountRow?.[4] !== 'Lump Sum' ||
-    fixedAmountRow?.[6] !== 18_750
+    fixedAmountRow?.[3] !== 32 ||
+    fixedAmountRow?.[4] !== 'Sq.ft' ||
+    fixedAmountRow?.[5] !== 9_000 ||
+    fixedAmountRow?.[6] !== 9_000
   ) {
     throw new Error(
       'Flat-priced items must export the entered amount as their final total.',
     );
+  }
+  const areaAmountRow = civilRows.find(
+    (row) =>
+      typeof row[1] === 'string' &&
+      row[1].startsWith('Floor tile pricing audit'),
+  );
+  if (
+    areaAmountRow?.[3] !== 32 ||
+    areaAmountRow?.[4] !== 'Sq.ft' ||
+    areaAmountRow?.[5] !== 9_000 ||
+    areaAmountRow?.[6] !== 288_000
+  ) {
+    throw new Error('Area-priced items must export quantity × unit rate.');
   }
   const boughtOutRows = X.utils.sheet_to_json<unknown[]>(
     workbook.Sheets['Bought Out'],
