@@ -2820,6 +2820,65 @@ textarea {
   gap: 12px;
   min-width: 0;
 }
+
+.composite-item {
+  border: 1px solid var(--line, #d8ddd9);
+  border-radius: 18px;
+  background: #f7faf8;
+  overflow: hidden;
+}
+.composite-item > header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid #dbe2de;
+}
+.composite-toggle {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+}
+.composite-toggle svg { width: 20px; flex: 0 0 auto; }
+.composite-toggle span { display: grid; gap: 2px; }
+.composite-toggle strong { font-size: 18px; }
+.composite-toggle small,
+.composite-item > p { color: var(--muted, #66736e); }
+.composite-total { font-size: 18px; white-space: nowrap; }
+.composite-item > p { margin: 0; padding: 0 18px 14px 48px; }
+.composite-editor {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  padding: 16px 18px;
+  border-bottom: 1px solid #dbe2de;
+  background: white;
+}
+.composite-editor label { display: grid; gap: 7px; color: #56645f; font-weight: 600; }
+.composite-editor textarea,
+.composite-editor select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #d8ddd9;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: white;
+}
+.composite-editor aside { grid-column: 1 / -1; color: #66736e; font-size: 13px; }
+.composite-children { display: grid; gap: 12px; padding: 14px; }
+.composite-children .item { background: white; }
+.composite-children .add-component { width: 100%; border-style: dashed; }
+.picker .composite-picker { background: #edf5f1; border-color: #b8cec4; }
+
+@media (max-width: 640px) {
+  .composite-item > header { align-items: flex-start; flex-wrap: wrap; }
+  .composite-toggle { flex-basis: calc(100% - 52px); }
+  .composite-total { margin-left: 30px; }
+  .composite-editor { grid-template-columns: 1fr; }
+}
 .room-components .item {
   width: 100%;
   min-width: 0;
@@ -5174,6 +5233,17 @@ body {
   border-color: #cbd3cf;
   border-radius: 10px;
 }
+.rates-table .composite-rate-heading td {
+  background: #e6efeb;
+  border-top: 2px solid #9fb8ad;
+  color: #173f35;
+}
+.rates-table .composite-rate-heading td:first-child {
+  padding-left: 18px;
+}
+.composite-rate-heading strong,
+.composite-rate-heading small { display: block; }
+.composite-rate-heading small { margin-top: 3px; color: #61736c; font-weight: 500; }
 .rates-table-wrap {
   width: 100%;
   overflow-x: auto;

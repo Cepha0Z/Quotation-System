@@ -50,6 +50,9 @@ export interface SubUnit {
 }
 export interface QuoteItem {
   id: string;
+  itemType?: 'simple' | 'composite';
+  parentItemId?: string;
+  childrenOrder?: string[];
   rateCardId?: string;
   rateSource?: 'template' | 'project';
   name: string;

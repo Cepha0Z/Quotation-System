@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
   HashRouter,
@@ -60,6 +60,7 @@ import {
 } from '@/domain/excelExport';
 import {
   inr,
+  compositeTotal,
   itemBaseRate,
   itemMeasure,
   itemSavings,
@@ -67,6 +68,12 @@ import {
   quoteTotals,
   roomTotal,
 } from '@/domain/pricing';
+import {
+  isCompositeItem,
+  moveCompositeChild,
+  orderedCompositeChildren,
+  removeItemTree,
+} from '@/domain/composites';
 import {
   BOQ_UNITS,
   FLOOR_SUGGESTIONS,
@@ -810,7 +817,7 @@ function Modal({
   subtitle?: string;
   className?: string;
   close: () => void;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <div
@@ -1547,6 +1554,7 @@ function ProjectTable({
 }
 const fresh = (r?: RateCardItem): QuoteItem => ({
   id: uid(),
+  itemType: 'simple',
   rateCardId: r?.id,
   rateSource: r ? 'template' : 'project',
   name: r?.name ?? 'New Item',
@@ -1829,6 +1837,9 @@ function Builder({ s }: { s: Store }) {
     [rid, setRid] = useState(p?.rooms[0]?.id ?? ''),
     [roomModal, setRoomModal] = useState(false),
     [itemModal, setItemModal] = useState(false),
+    [itemParentId, setItemParentId] = useState<string | null>(null),
+    [groupModal, setGroupModal] = useState(false),
+    [groupName, setGroupName] = useState(''),
     [compare, setCompare] = useState(false),
     [projectActions, setProjectActions] = useState(false),
     [assignmentModal, setAssignmentModal] = useState(false),
@@ -1870,10 +1881,17 @@ function Builder({ s }: { s: Store }) {
         (selectedWorkType === 'All' || item.workType === selectedWorkType),
     );
   const roomFilteredItems = (space: Room) =>
-    space.items.filter(
-      (item) =>
-        selectedWorkType === 'All' || item.workType === selectedWorkType,
-    );
+    space.items.filter((item) => {
+      if (item.parentItemId) return false;
+      if (selectedWorkType === 'All') return true;
+      if (item.workType === selectedWorkType) return true;
+      return (
+        isCompositeItem(item) &&
+        orderedCompositeChildren(space, item).some(
+          (child) => child.workType === selectedWorkType,
+        )
+      );
+    });
   const roomWorkTypeTotal = (space: Room) =>
     roomWorkTypeItems(space).reduce(
       (sum, item) => sum + itemTotal(item, p.defaultTier),
@@ -1895,6 +1913,50 @@ function Builder({ s }: { s: Store }) {
           : r,
       ),
     }));
+  const openItemPicker = (parentItemId: string | null = null) => {
+    setItemParentId(parentItemId);
+    setItemModal(true);
+  };
+  const addPickedItem = (template?: RateCardItem) => {
+    if (!room) return;
+    const parent = itemParentId
+      ? room.items.find((candidate) => candidate.id === itemParentId)
+      : undefined;
+    const item = {
+      ...fresh(template),
+      workType:
+        parent?.workType ??
+        (selectedWorkType === 'All'
+          ? template
+            ? 'Millwork'
+            : 'Other'
+          : selectedWorkType),
+      ...(itemParentId ? { parentItemId: itemParentId } : {}),
+    };
+    update((q) => ({
+      ...q,
+      rooms: q.rooms.map((candidate) =>
+        candidate.id !== room.id
+          ? candidate
+          : {
+              ...candidate,
+              items: [
+                ...candidate.items.map((existing) =>
+                  existing.id === itemParentId
+                    ? {
+                        ...existing,
+                        childrenOrder: [...(existing.childrenOrder ?? []), item.id],
+                      }
+                    : existing,
+                ),
+                item,
+              ],
+            },
+      ),
+    }));
+    setItemModal(false);
+    setItemParentId(null);
+  };
   const addSpaceToFloor = (floorId: string, floorName: string) => {
     const name = window.prompt(`Add a space to ${floorName}`);
     if (!name?.trim()) return;
@@ -1931,6 +1993,109 @@ function Builder({ s }: { s: Store }) {
     setRevisionModal(false);
     setRevisionNote('');
   }
+  const renderItem = (
+    item: QuoteItem,
+    index: number,
+    parent?: QuoteItem,
+  ) => (
+    <Item
+      key={item.id}
+      item={item}
+      p={p}
+      canManageFinancials={s.canManageFinancials}
+      showWorkType={selectedWorkType === 'All'}
+      currentRoomId={room.id}
+      editing={editingItemId === item.id}
+      setEditing={(value) => setEditingItemId(value ? item.id : null)}
+      patch={(x) => patchItem(item.id, x)}
+      duplicate={() => {
+        const copy = {
+          ...structuredClone(item),
+          id: uid(),
+          name: item.name + ' copy',
+        };
+        update((q) => ({
+          ...q,
+          rooms: q.rooms.map((candidate) =>
+            candidate.id !== room.id
+              ? candidate
+              : {
+                  ...candidate,
+                  items: [
+                    ...candidate.items.map((existing) =>
+                      existing.id === parent?.id
+                        ? {
+                            ...existing,
+                            childrenOrder: [
+                              ...(existing.childrenOrder ?? []),
+                              copy.id,
+                            ],
+                          }
+                        : existing,
+                    ),
+                    copy,
+                  ],
+                },
+          ),
+        }));
+      }}
+      remove={() =>
+        update((q) => ({
+          ...q,
+          rooms: q.rooms.map((candidate) =>
+            candidate.id === room.id
+              ? { ...candidate, items: removeItemTree(candidate.items, item.id) }
+              : candidate,
+          ),
+        }))
+      }
+      move={
+        parent
+          ? undefined
+          : (destination) =>
+              update((q) => ({
+                ...q,
+                rooms: q.rooms.map((candidate) =>
+                  candidate.id === room.id
+                    ? {
+                        ...candidate,
+                        items: candidate.items.filter((x) => x.id !== item.id),
+                      }
+                    : candidate.id === destination
+                      ? { ...candidate, items: [...candidate.items, structuredClone(item)] }
+                      : candidate,
+                ),
+              }))
+      }
+      order={(direction) =>
+        update((q) => ({
+          ...q,
+          rooms: q.rooms.map((candidate) => {
+            if (candidate.id !== room.id) return candidate;
+            if (parent)
+              return {
+                ...candidate,
+                items: moveCompositeChild(
+                  candidate.items,
+                  parent.id,
+                  item.id,
+                  direction < 0 ? -1 : 1,
+                ),
+              };
+            const roots = candidate.items.filter((entry) => !entry.parentItemId);
+            const rootIndex = roots.findIndex((entry) => entry.id === item.id);
+            const target = roots[rootIndex + direction];
+            if (!target) return candidate;
+            const items = [...candidate.items];
+            const from = items.findIndex((entry) => entry.id === item.id);
+            const to = items.findIndex((entry) => entry.id === target.id);
+            [items[from], items[to]] = [items[to], items[from]];
+            return { ...candidate, items };
+          }),
+        }))
+      }
+    />
+  );
   return (
     <div className="builder">
       <header className="builder-head">
@@ -2381,13 +2546,13 @@ function Builder({ s }: { s: Store }) {
                         quotation.
                       </p>
                       <div>
-                        <Button size="lg" onClick={() => setItemModal(true)}>
+                        <Button size="lg" onClick={() => openItemPicker()}>
                           <Plus /> Add BOQ Item
                         </Button>
                         <Button
                           variant="outline"
                           size="lg"
-                          onClick={() => setItemModal(true)}
+                          onClick={() => openItemPicker()}
                         >
                           <ClipboardList /> Browse Item Templates
                         </Button>
@@ -2401,99 +2566,77 @@ function Builder({ s }: { s: Store }) {
                       </aside>
                     </div>
                   ) : (
-                    roomFilteredItems(room).map((item, i) => (
-                      <Item
-                        key={item.id}
-                        item={item}
-                        p={p}
-                        canManageFinancials={s.canManageFinancials}
-                        showWorkType={selectedWorkType === 'All'}
-                        currentRoomId={room.id}
-                        editing={editingItemId === item.id}
-                        setEditing={(value) =>
-                          setEditingItemId(value ? item.id : null)
-                        }
-                        patch={(x) => patchItem(item.id, x)}
-                        duplicate={() =>
-                          update((q) => ({
-                            ...q,
-                            rooms: q.rooms.map((r) =>
-                              r.id === room.id
-                                ? {
-                                    ...r,
-                                    items: [
-                                      ...r.items,
-                                      {
-                                        ...structuredClone(item),
-                                        id: uid(),
-                                        name: item.name + ' copy',
-                                      },
-                                    ],
-                                  }
-                                : r,
-                            ),
-                          }))
-                        }
-                        remove={() =>
-                          update((q) => ({
-                            ...q,
-                            rooms: q.rooms.map((r) =>
-                              r.id === room.id
-                                ? {
-                                    ...r,
-                                    items: r.items.filter(
-                                      (x) => x.id !== item.id,
-                                    ),
-                                  }
-                                : r,
-                            ),
-                          }))
-                        }
-                        move={(dest) =>
-                          update((q) => ({
-                            ...q,
-                            rooms: q.rooms.map((r) =>
-                              r.id === room.id
-                                ? {
-                                    ...r,
-                                    items: r.items.filter(
-                                      (x) => x.id !== item.id,
-                                    ),
-                                  }
-                                : r.id === dest
+                    roomFilteredItems(room).map((item, i) =>
+                      isCompositeItem(item) ? (
+                        <CompositeItem
+                          key={item.id}
+                          item={item}
+                          room={room}
+                          p={p}
+                          canManageFinancials={s.canManageFinancials}
+                          patch={(change) =>
+                            update((q) => ({
+                              ...q,
+                              rooms: q.rooms.map((candidate) =>
+                                candidate.id !== room.id
+                                  ? candidate
+                                  : {
+                                      ...candidate,
+                                      items: candidate.items.map((entry) =>
+                                        entry.id === item.id ||
+                                        (change.workType !== undefined &&
+                                          entry.parentItemId === item.id)
+                                          ? { ...entry, ...change }
+                                          : entry,
+                                      ),
+                                    },
+                              ),
+                            }))
+                          }
+                          addChild={() => openItemPicker(item.id)}
+                          remove={() => {
+                            const count = orderedCompositeChildren(room, item).length;
+                            if (
+                              count &&
+                              !window.confirm(
+                                `Delete ${item.name} and its ${count} components?`,
+                              )
+                            )
+                              return;
+                            update((q) => ({
+                              ...q,
+                              rooms: q.rooms.map((candidate) =>
+                                candidate.id === room.id
                                   ? {
-                                      ...r,
-                                      items: [
-                                        ...r.items,
-                                        structuredClone(item),
-                                      ],
+                                      ...candidate,
+                                      items: removeItemTree(candidate.items, item.id),
                                     }
-                                  : r,
-                            ),
-                          }))
-                        }
-                        order={(d) =>
-                          update((q) => ({
-                            ...q,
-                            rooms: q.rooms.map((r) => {
-                              if (r.id !== room.id) return r;
-                              const a = [...r.items],
-                                j = i + d;
-                              if (j < 0 || j >= a.length) return r;
-                              [a[i], a[j]] = [a[j], a[i]];
-                              return { ...r, items: a };
-                            }),
-                          }))
-                        }
-                      />
-                    ))
+                                  : candidate,
+                              ),
+                            }));
+                          }}
+                        >
+                          {orderedCompositeChildren(room, item)
+                            .filter(
+                              (child) =>
+                                selectedWorkType === 'All' ||
+                                child.workType === selectedWorkType,
+                            )
+                            .map((child, childIndex) =>
+                              renderItem(child, childIndex, item),
+                            )}
+                        </CompositeItem>
+                      ) : (
+                        renderItem(item, i)
+                      ),
+                    )
                   )}
                   {roomFilteredItems(room).length > 0 && (
                     <Button
                       className="add-item"
                       variant="outline"
                       size="lg"
-                      onClick={() => setItemModal(true)}
+                      onClick={() => openItemPicker()}
                     >
                       <Plus />
                       Add item to {room.name}
@@ -2815,34 +2958,35 @@ function Builder({ s }: { s: Store }) {
         </Modal>
       )}
       {itemModal && room && (
-        <Modal title="Add an item" close={() => setItemModal(false)}>
+        <Modal
+          title={
+            itemParentId
+              ? `Add a component to ${room.items.find((item) => item.id === itemParentId)?.name ?? 'group'}`
+              : 'Add an item'
+          }
+          close={() => {
+            setItemModal(false);
+            setItemParentId(null);
+          }}
+        >
           <div className="picker">
+            {!itemParentId && (
+              <button
+                className="composite-picker"
+                onClick={() => {
+                  setItemModal(false);
+                  setGroupName('');
+                  setGroupModal(true);
+                }}
+              >
+                <strong>Group / composite item</strong>
+                <small>One commercial scope made from separately priced components</small>
+              </button>
+            )}
             {s.rates.map((r) => (
               <button
                 key={r.id}
-                onClick={() => {
-                  update((q) => ({
-                    ...q,
-                    rooms: q.rooms.map((x) =>
-                      x.id === room.id
-                        ? {
-                            ...x,
-                            items: [
-                              ...x.items,
-                              {
-                                ...fresh(r),
-                                workType:
-                                  selectedWorkType === 'All'
-                                    ? 'Millwork'
-                                    : selectedWorkType,
-                              },
-                            ],
-                          }
-                        : x,
-                    ),
-                  }));
-                  setItemModal(false);
-                }}
+                onClick={() => addPickedItem(r)}
               >
                 <strong>{r.name}</strong>
                 <small>{r.description}</small>
@@ -2854,34 +2998,74 @@ function Builder({ s }: { s: Store }) {
               </button>
             ))}
             <button
-              onClick={() => {
-                update((q) => ({
-                  ...q,
-                  rooms: q.rooms.map((x) =>
-                    x.id === room.id
-                      ? {
-                          ...x,
-                          items: [
-                            ...x.items,
-                            {
-                              ...fresh(),
-                              workType:
-                                selectedWorkType === 'All'
-                                  ? 'Other'
-                                  : selectedWorkType,
-                            },
-                          ],
-                        }
-                      : x,
-                  ),
-                }));
-                setItemModal(false);
-              }}
+              onClick={() => addPickedItem()}
             >
               <strong>Custom item</strong>
               <small>Project-specific scope</small>
             </button>
           </div>
+        </Modal>
+      )}
+      {groupModal && room && (
+        <Modal title="Create a grouped BOQ item" close={() => setGroupModal(false)}>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!groupName.trim()) return;
+              const descriptionValue = new FormData(event.currentTarget).get('description');
+              const parent: QuoteItem = {
+                ...fresh(),
+                itemType: 'composite',
+                childrenOrder: [],
+                name: groupName.trim(),
+                description:
+                  typeof descriptionValue === 'string' ? descriptionValue : '',
+                workType:
+                  selectedWorkType === 'All' ? 'Other' : selectedWorkType,
+                quantity: 0,
+                rates: { standard: 0, premium: 0, luxury: 0 },
+                subUnits: [],
+              };
+              update((q) => ({
+                ...q,
+                rooms: q.rooms.map((candidate) =>
+                  candidate.id === room.id
+                    ? { ...candidate, items: [...candidate.items, parent] }
+                    : candidate,
+                ),
+              }));
+              setGroupModal(false);
+              setGroupName('');
+            }}
+          >
+            <div className="form-grid single-column">
+              <label htmlFor="composite-group-name">
+                Group name
+                <Input
+                  id="composite-group-name"
+                  value={groupName}
+                  onChange={(event) => setGroupName(event.target.value)}
+                  placeholder="Kitchen cabinets"
+                />
+              </label>
+              <label htmlFor="composite-group-description">
+                Description
+                <textarea
+                  id="composite-group-description"
+                  name="description"
+                  placeholder="Describe the complete commercial scope"
+                />
+              </label>
+            </div>
+            <div className="actions">
+              <Button type="button" variant="outline" onClick={() => setGroupModal(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={!groupName.trim()}>
+                Create group
+              </Button>
+            </div>
+          </form>
         </Modal>
       )}
       {s.canManageFinancials && compare && (
@@ -3119,6 +3303,92 @@ function itemMeasureLabel(item: QuoteItem) {
   });
   return `${quantity} ${item.customUnit || item.unit || unitForMeasurement(item.measurementType)}`;
 }
+function CompositeItem({
+  item,
+  room,
+  p,
+  canManageFinancials,
+  patch,
+  addChild,
+  remove,
+  children,
+}: {
+  item: QuoteItem;
+  room: Room;
+  p: Project;
+  canManageFinancials: boolean;
+  patch: (change: Partial<QuoteItem>) => void;
+  addChild: () => void;
+  remove: () => void;
+  children: ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const components = orderedCompositeChildren(room, item);
+  return (
+    <section className="composite-item">
+      <header>
+        <button
+          type="button"
+          className="composite-toggle"
+          onClick={() => setExpanded((value) => !value)}
+          aria-expanded={expanded}
+        >
+          {expanded ? <ChevronDown /> : <ChevronRight />}
+          <span>
+            <strong>{item.name}</strong>
+            <small>
+              {components.length} {components.length === 1 ? 'component' : 'components'}
+            </small>
+          </span>
+        </button>
+        {canManageFinancials && (
+          <strong className="composite-total">
+            {inr(compositeTotal(item, room, p.defaultTier))}
+          </strong>
+        )}
+        <Button variant="outline" onClick={() => setEditing((value) => !value)}>
+          {editing ? 'Done' : 'Edit group'}
+        </Button>
+        <Button variant="ghost" size="icon-lg" onClick={remove} aria-label={`Delete ${item.name}`}>
+          <Trash2 />
+        </Button>
+      </header>
+      {item.description && !editing && <p>{item.description}</p>}
+      {editing && (
+        <div className="composite-editor">
+          <label htmlFor={`composite-name-${item.id}`}>
+            Name
+            <Input id={`composite-name-${item.id}`} value={item.name} onChange={(event) => patch({ name: event.target.value })} />
+          </label>
+          <label htmlFor={`composite-description-${item.id}`}>
+            Description
+            <textarea id={`composite-description-${item.id}`} value={item.description} onChange={(event) => patch({ description: event.target.value })} />
+          </label>
+          <label htmlFor={`composite-work-type-${item.id}`}>
+            Work type
+            <select id={`composite-work-type-${item.id}`} value={item.workType ?? 'Other'} onChange={(event) => patch({ workType: event.target.value })}>
+              {WORK_TYPES.map((entry) => <option key={entry}>{entry}</option>)}
+            </select>
+          </label>
+          <label htmlFor={`composite-notes-${item.id}`}>
+            Notes
+            <textarea id={`composite-notes-${item.id}`} value={item.notes} onChange={(event) => patch({ notes: event.target.value })} />
+          </label>
+          <aside>A group has no editable rate. Its total is the sum of its components.</aside>
+        </div>
+      )}
+      {expanded && (
+        <div className="composite-children">
+          {children}
+          <Button variant="outline" className="add-component" onClick={addChild}>
+            <Plus /> Add component
+          </Button>
+        </div>
+      )}
+    </section>
+  );
+}
 function Item({
   item,
   p,
@@ -3143,7 +3413,7 @@ function Item({
   patch: (x: Partial<QuoteItem>) => void;
   duplicate: () => void;
   remove: () => void;
-  move: (x: string) => void;
+  move?: (x: string) => void;
   order: (d: number) => void;
 }) {
   const [more, setMore] = useState(false),
@@ -3325,9 +3595,10 @@ function Item({
                   >
                     <Copy /> Duplicate here
                   </Button>
-                  <label>
-                    Move to room
-                    <select
+                  {move && (
+                    <label>
+                      Move to room
+                      <select
                       defaultValue=""
                       onChange={(event) => {
                         if (event.target.value) move(event.target.value);
@@ -3344,8 +3615,9 @@ function Item({
                             {room.name}
                           </option>
                         ))}
-                    </select>
-                  </label>
+                      </select>
+                    </label>
+                  )}
                   {canManageFinancials && (
                     <Button
                       variant="ghost"
@@ -3927,7 +4199,7 @@ function Preview({ s }: { s: Store }) {
               </thead>
               <tbody>
                 {r.items
-                  .filter((i) => i.enabled)
+                  .filter((i) => i.enabled && !isCompositeItem(i))
                   .map((i) => (
                     <tr key={i.id}>
                       <td>
@@ -3993,6 +4265,7 @@ type ProjectRateRow = {
   floorName: string;
   item: QuoteItem;
   hasTemplate: boolean;
+  parent?: QuoteItem;
 };
 
 function ProjectRates({ s }: { s: Store }) {
@@ -4024,11 +4297,17 @@ function ProjectRates({ s }: { s: Store }) {
     (project.floors ?? []).map((entry) => [entry.id, entry.name]),
   );
   const rows: ProjectRateRow[] = project.rooms.flatMap((room) =>
-    room.items.map((item) => ({
+    room.items.filter((item) => !isCompositeItem(item)).map((item) => ({
       key: `${room.id}:${item.id}`,
       room,
       floorName: floorNames.get(room.floorId ?? '') ?? 'Unassigned',
       item,
+      parent: item.parentItemId
+        ? room.items.find(
+            (candidate) =>
+              candidate.id === item.parentItemId && isCompositeItem(candidate),
+          )
+        : undefined,
       hasTemplate: Boolean(resolveTemplate(item, s.rates)),
     })),
   );
@@ -4058,6 +4337,8 @@ function ProjectRates({ s }: { s: Store }) {
           row.item.workType,
           row.room.name,
           row.floorName,
+          row.parent?.name,
+          row.parent?.description,
         ].some((value) => value?.toLowerCase().includes(query))),
   );
 
@@ -4249,16 +4530,36 @@ function ProjectRates({ s }: { s: Store }) {
                   row.item.customUnit ||
                   row.item.unit ||
                   unitForMeasurement(row.item.measurementType);
+                const showParent =
+                  row.parent &&
+                  visibleRows.findIndex(
+                    (candidate) => candidate.parent?.id === row.parent?.id,
+                  ) === index;
                 return (
+                  <Fragment key={row.key}>
+                  {showParent && row.parent && (
+                    <tr className="composite-rate-heading">
+                      <td colSpan={7}>
+                        <strong>{row.parent.name}</strong>
+                        <small>
+                          {orderedCompositeChildren(row.room, row.parent).length}{' '}
+                          components · {row.floorName} · {row.room.name}
+                        </small>
+                      </td>
+                      <td>No parent rate</td>
+                      <td className="amount-cell">
+                        {inr(compositeTotal(row.parent, row.room, project.defaultTier))}
+                      </td>
+                    </tr>
+                  )}
                   <tr
-                    key={row.key}
                     className={!row.item.enabled ? 'rate-row-disabled' : ''}
                   >
                     <td>{row.item.workType ?? 'Other'}</td>
                     <td>{row.floorName}</td>
                     <td>{row.room.name}</td>
                     <td className="rate-item-cell">
-                      <strong>{row.item.name}</strong>
+                      <strong>{row.parent ? `↳ ${row.item.name}` : row.item.name}</strong>
                       {row.item.description && (
                         <small>{row.item.description}</small>
                       )}
@@ -4395,6 +4696,7 @@ function ProjectRates({ s }: { s: Store }) {
                         : inr(itemTotal(previewItem, project.defaultTier))}
                     </td>
                   </tr>
+                  </Fragment>
                 );
               })}
             </tbody>

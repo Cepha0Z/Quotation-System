@@ -1,4 +1,5 @@
 import type { Fee, Project, QuoteItem, Room, Tier } from './types';
+import { isCompositeItem, orderedCompositeChildren } from './composites';
 
 const safe = (value: unknown) =>
   Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : 0;
@@ -60,7 +61,7 @@ export const itemOriginalTotal = (
   projectTier: Tier,
   forcedTier?: Tier,
 ) =>
-  item.enabled
+  item.enabled && !isCompositeItem(item)
     ? item.pricingMode === 'lump-sum'
       ? safe(itemBaseRate(item, projectTier, forcedTier))
       : itemMeasure(item) * safe(itemBaseRate(item, projectTier, forcedTier)) +
@@ -82,7 +83,7 @@ export const itemSavings = (
   projectTier: Tier,
   forcedTier?: Tier,
 ) => {
-  if (!item.enabled) return 0;
+  if (!item.enabled || isCompositeItem(item)) return 0;
   const rateSaving =
     Math.max(
       0,
@@ -97,6 +98,18 @@ export const itemSavings = (
     )
   );
 };
+export const compositeTotal = (
+  parent: QuoteItem,
+  room: Room,
+  tier: Tier,
+  forcedTier?: Tier,
+) =>
+  isCompositeItem(parent)
+    ? orderedCompositeChildren(room, parent).reduce(
+        (sum, child) => sum + itemTotal(child, tier, forcedTier),
+        0,
+      )
+    : itemTotal(parent, tier, forcedTier);
 export const roomTotal = (room: Room, tier: Tier, forcedTier?: Tier) =>
   room.items.reduce((sum, item) => sum + itemTotal(item, tier, forcedTier), 0);
 export const interiorTotal = (project: Project, forcedTier?: Tier) =>

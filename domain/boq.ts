@@ -5,6 +5,7 @@ import type {
   Project,
   QuoteItem,
 } from './types';
+import { normalizeCompositeItems } from './composites';
 
 export const WORK_TYPES = [
   'Civil Work',
@@ -127,7 +128,7 @@ export function normalizeProject(project: Project): Project {
       floorId: floors.some((floor) => floor.id === space.floorId)
         ? space.floorId
         : floors[0].id,
-      items: space.items.map(
+      items: normalizeCompositeItems(space.items.map(
         (item): QuoteItem => ({
           ...item,
           workType: item.workType ?? 'Millwork',
@@ -143,7 +144,7 @@ export function normalizeProject(project: Project): Project {
               ? 'dimensions'
               : 'quantity'),
         }),
-      ),
+      )),
     })),
   };
 }

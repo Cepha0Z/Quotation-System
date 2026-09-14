@@ -33,6 +33,7 @@ import type {
   Revision,
   Room,
 } from '@/domain/types';
+import { isCompositeItem } from '@/domain/composites';
 import { getFirebaseServices } from '@/lib/firebase';
 import { indexedDbStorage } from './db';
 
@@ -142,7 +143,9 @@ export function projectFinancial(project: Project) {
         room.id,
         {
           items: Object.fromEntries(
-            room.items.map((item) => [item.id, itemFinancial(item)]),
+            room.items
+              .filter((item) => !isCompositeItem(item))
+              .map((item) => [item.id, itemFinancial(item)]),
           ),
         },
       ]),

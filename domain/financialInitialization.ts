@@ -5,7 +5,7 @@ import { rateCard as bundledTemplates } from './sample';
 type Money = Partial<Pick<QuoteItem, 'enabled' | 'rateSource' | 'rates' | 'tierOverride' | 'rateOverride' | 'discount' | 'pricingMode' | 'subUnits'>>;
 export interface TechnicalProject {
   id: string;
-  rooms?: Record<string, { items?: Record<string, Pick<QuoteItem, 'id' | 'name' | 'measurementType' | 'rateCardId'>> }>;
+  rooms?: Record<string, { items?: Record<string, Pick<QuoteItem, 'id' | 'name' | 'measurementType' | 'rateCardId' | 'itemType'>> }>;
 }
 export interface FinancialProject {
   defaultTier?: Tier;
@@ -76,6 +76,7 @@ export function initializeMissingFinancials(
   }
   for (const [roomId, room] of Object.entries(technical.rooms ?? {})) {
     for (const [itemId, item] of Object.entries(room.items ?? {})) {
+      if (item.itemType === 'composite') continue;
       if (result.rooms?.[roomId]?.items?.[itemId]) continue;
       // Moving a technical item between rooms must retain its project price.
       const previous = Object.values(current?.rooms ?? {}).find((r) => r.items?.[itemId])?.items?.[itemId];

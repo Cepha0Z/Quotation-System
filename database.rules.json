@@ -68,8 +68,14 @@
             "itemOrder": { ".validate": true },
             "items": {
               "$itemId": {
-                ".validate": "newData.child('id').val() === $itemId && newData.child('name').isString()",
+                ".validate": "newData.child('id').val() === $itemId && newData.child('name').isString() && (!newData.child('itemType').exists() || newData.child('itemType').val() === 'simple' || newData.child('itemType').val() === 'composite') && (newData.child('itemType').val() !== 'composite' || !newData.child('parentItemId').exists()) && (!newData.child('parentItemId').exists() || (newData.child('parentItemId').isString() && newData.child('parentItemId').val() !== $itemId && newData.parent().child(newData.child('parentItemId').val()).child('itemType').val() === 'composite'))",
                 "id": { ".validate": true },
+                "itemType": { ".validate": "newData.val() === 'simple' || newData.val() === 'composite'" },
+                "parentItemId": { ".validate": "newData.isString()" },
+                "childrenOrder": {
+                  ".validate": "newData.hasChildren()",
+                  "$index": { ".validate": "newData.isString() && newData.parent().parent().parent().child(newData.val()).child('parentItemId').val() === $itemId" }
+                },
                 "rateCardId": { ".validate": true },
                 "name": { ".validate": true },
                 "description": { ".validate": true },
@@ -134,8 +140,14 @@
                   "itemOrder": { ".validate": true },
                   "items": {
                     "$itemId": {
-                      ".validate": "newData.child('id').val() === $itemId && newData.child('name').isString()",
+                      ".validate": "newData.child('id').val() === $itemId && newData.child('name').isString() && (!newData.child('itemType').exists() || newData.child('itemType').val() === 'simple' || newData.child('itemType').val() === 'composite') && (newData.child('itemType').val() !== 'composite' || !newData.child('parentItemId').exists()) && (!newData.child('parentItemId').exists() || (newData.child('parentItemId').isString() && newData.child('parentItemId').val() !== $itemId && newData.parent().child(newData.child('parentItemId').val()).child('itemType').val() === 'composite'))",
                       "id": { ".validate": true },
+                      "itemType": { ".validate": "newData.val() === 'simple' || newData.val() === 'composite'" },
+                      "parentItemId": { ".validate": "newData.isString()" },
+                      "childrenOrder": {
+                        ".validate": "newData.hasChildren()",
+                        "$index": { ".validate": "newData.isString() && newData.parent().parent().parent().child(newData.val()).child('parentItemId').val() === $itemId" }
+                      },
                       "rateCardId": { ".validate": true },
                       "name": { ".validate": true },
                       "description": { ".validate": true },

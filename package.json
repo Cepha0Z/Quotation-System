@@ -14,6 +14,7 @@
     "test:pricing": "node scripts/verify-pricing.mjs",
     "test:excel-export": "node scripts/verify-excel-export.mjs",
     "test:firebase-security": "node scripts/verify-firebase.mjs",
+    "test:composites": "node scripts/verify-composites.mjs",
     "lint": "oxlint",
     "format": "oxfmt"
   },

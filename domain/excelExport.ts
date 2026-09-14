@@ -873,7 +873,7 @@ export async function createProjectExcelFile(
     ...new Set(
       project.rooms.flatMap((space) =>
         space.items
-          .filter((item) => item.enabled)
+          .filter((item) => item.enabled && item.itemType !== 'composite')
           .map((item) => item.workType ?? 'Millwork'),
       ),
     ),
@@ -894,7 +894,9 @@ export async function createProjectExcelFile(
           space.items
             .filter(
               (item) =>
-                item.enabled && (item.workType ?? 'Millwork') === workType,
+                item.enabled &&
+                item.itemType !== 'composite' &&
+                (item.workType ?? 'Millwork') === workType,
             )
             .reduce(
               (itemSum, item) => itemSum + itemTotal(item, project.defaultTier),
@@ -1030,7 +1032,9 @@ export async function createProjectExcelFile(
           space,
           items: space.items.filter(
             (item) =>
-              item.enabled && (item.workType ?? 'Millwork') === workType,
+              item.enabled &&
+              item.itemType !== 'composite' &&
+              (item.workType ?? 'Millwork') === workType,
           ),
         }))
         .filter(({ items }) => items.length > 0);
