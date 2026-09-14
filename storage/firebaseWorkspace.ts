@@ -610,6 +610,10 @@ export function subscribeWorkspace(
   let adminRevisionsReady = user.role !== 'admin';
   let active = true;
   const repairs = new Set<string>();
+  // Legacy admin revisions predate the project-level shared history. Attempt
+  // each backfill once per subscription, but never let one malformed/blocked
+  // legacy record disable unrelated project saves for the current session.
+  const legacyRevisionBackfills = new Set<string>();
   const emit = () => {
     if (!active || !adminTechnicalReady || !adminFinancialReady || !adminRatesReady || !adminRevisionsReady) return;
     if (employeePendingProjects.size) return;
@@ -652,14 +656,17 @@ export function subscribeWorkspace(
         if (sharedIds.has(revision.id) || !technical.has(revision.projectId))
           continue;
         const key = `${revision.projectId}:${revision.id}`;
-        if (repairs.has(key)) continue;
-        repairs.add(key);
+        if (legacyRevisionBackfills.has(key)) continue;
+        legacyRevisionBackfills.add(key);
         void publishLegacyTechnicalRevision(services.database, user, revision).then(
-          () => repairs.delete(key),
-          () => {
-            repairs.delete(key);
-            if (active)
-              error('Could not add an existing revision to shared history.');
+          () => undefined,
+          (cause) => {
+            // The private legacy record remains untouched and visible to the
+            // admin. A later session can retry after rules/data are repaired.
+            console.warn(
+              `Could not backfill legacy revision at projectsTechnical/${revision.projectId}/revisionHistory/${revision.id}.`,
+              cause,
+            );
           },
         );
       }

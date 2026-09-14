@@ -140,6 +140,7 @@ async function main() {
     await setProjectAssignment(admin, project.id, outsider.uid, true);
     let employeeBRevisions = [] as import('../domain/types').Revision[];
     let adminRevisions = [] as import('../domain/types').Revision[];
+    const revisionSyncErrors: string[] = [];
     selectClient(2);
     stopEmployeeB = subscribeWorkspace(outsider, (snapshot) => {
       employeeBRevisions = snapshot.revisions;
@@ -147,7 +148,7 @@ async function main() {
     selectClient(4);
     stopAdmin = subscribeWorkspace(admin, (snapshot) => {
       adminRevisions = snapshot.revisions;
-    }, () => {});
+    }, (message) => revisionSyncErrors.push(message));
     await waitFor(() =>
       employeeBRevisions.some((revision) => revision.id === employeeRevision.id) &&
       adminRevisions.some((revision) => revision.id === employeeRevision.id),
@@ -199,6 +200,25 @@ async function main() {
     );
     assert.equal((await get(ref(bossDb, `revisions/${legacyAdminRevision.id}`))).exists(), true);
     assert.equal((await get(ref(bossDb, `projectsTechnical/${project.id}/revisionHistory/${legacyAdminRevision.id}/snapshot/rooms/room/items/item/rates`))).exists(), false);
+    const blockedLegacyRevision = {
+      ...legacyAdminRevision,
+      id: 'blocked-legacy-revision', number: 5,
+      snapshot: { ...legacyAdminRevision.snapshot, id: 'wrong-project' },
+    };
+    await set(ref(bossDb, `revisions/${blockedLegacyRevision.id}`), blockedLegacyRevision);
+    await waitFor(() => adminRevisions.some((revision) => revision.id === blockedLegacyRevision.id));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal((await get(ref(bossDb, `projectsTechnical/${project.id}/revisionHistory/${blockedLegacyRevision.id}`))).exists(), false);
+    assert.deepEqual(revisionSyncErrors, []);
+    const postFailureRevision = {
+      ...adminRevision,
+      id: 'post-failure-revision', number: 6, note: 'Save remains available',
+    };
+    await saveRevisions(admin, adminRevisions, [...adminRevisions, postFailureRevision]);
+    await waitFor(() =>
+      visibleRevisions.some((revision) => revision.id === postFailureRevision.id) &&
+      employeeBRevisions.some((revision) => revision.id === postFailureRevision.id),
+    );
     await update(ref(bossDb, `projectsTechnical/${project.id}/revisionHistory/${employeeRevision.id}`), {
       createdBy: null,
       authorName: null,
@@ -209,7 +229,7 @@ async function main() {
     stopAdmin = () => {};
     selectClient(0);
     await setProjectAssignment(admin, project.id, outsider.uid, false);
-    console.log('PASS: shared project revision history converges across admin and two employees, legacy admin revisions are backfilled, and private financial snapshots remain admin-only');
+    console.log('PASS: shared project revision history converges across admin and two employees; legacy failures stay isolated; private financial snapshots remain admin-only');
     selectClient(1);
     const expanded = structuredClone(edited);
     expanded.floors!.push({ id: 'second-floor', name: 'Second Floor' });
