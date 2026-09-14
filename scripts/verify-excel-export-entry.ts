@@ -445,6 +445,10 @@ async function main() {
     itemType: 'composite',
     childrenOrder: ['base', 'wall', 'wardrobe', 'ceiling'],
     description: 'Complete kitchen cabinetry scope',
+    quantity: 32,
+    unit: 'Sq.ft',
+    measurementType: 'sqft',
+    measureMode: 'quantity',
     rates: { standard: 999_999, premium: 999_999, luxury: 999_999 },
   });
   const component = (
@@ -503,23 +507,39 @@ async function main() {
     { header: 1, raw: true },
   );
   const groupRow = compositeRows.findIndex(
-    (row) => row[1] === 'KITCHEN CABINETS\nComplete kitchen cabinetry scope',
+    (row) => row[1] === 'Kitchen Cabinets: Complete kitchen cabinetry scope',
   );
-  if (groupRow < 0 || compositeRows[groupRow][6] !== '₹2,03,360.00')
-    throw new Error('Composite parent heading or visual total is incorrect.');
+  if (
+    groupRow < 0 ||
+    compositeRows[groupRow][3] !== 32 ||
+    compositeRows[groupRow][4] !== 'Sq.ft' ||
+    compositeRows[groupRow][5] !== '—' ||
+    compositeRows[groupRow][6] !== 203_360
+  )
+    throw new Error('Composite parent row or display-only total is incorrect.');
   const exportedNames = compositeRows
     .slice(groupRow + 1, groupRow + 5)
     .map((row) => String(row[1]).split(':')[0]);
   if (
     JSON.stringify(exportedNames) !==
     JSON.stringify([
-      '↳ Base Cabinets',
-      '↳ Wall Cabinets',
-      '↳ Wardrobe',
-      '↳ False Ceiling',
+      'Base Cabinets',
+      'Wall Cabinets',
+      'Wardrobe',
+      'False Ceiling',
     ])
   )
     throw new Error('Composite children did not follow childrenOrder.');
+  const compositeSheet = compositeWorkbook.Sheets['Civil Work'];
+  const mergedAcrossGroup = (compositeSheet['!merges'] ?? []).some((merge) =>
+    merge.s.r === groupRow && merge.e.r === groupRow && merge.s.c <= 1 && merge.e.c >= 5,
+  );
+  if (mergedAcrossGroup)
+    throw new Error('Composite parent must remain a normal unmerged BOQ row.');
+  const compositeArchive = unzipSync(compositeExport.bytes);
+  const compositeStylesXml = strFromU8(compositeArchive['xl/styles.xml']);
+  if (!/indent="1"/.test(compositeStylesXml))
+    throw new Error('Composite child hierarchy must use Excel indentation.');
   const livingSubtotal = compositeRows.find(
     (row) => row[0] === 'Living Room subtotal',
   );

@@ -1842,6 +1842,8 @@ function Builder({ s }: { s: Store }) {
     [itemParentId, setItemParentId] = useState<string | null>(null),
     [groupModal, setGroupModal] = useState(false),
     [groupName, setGroupName] = useState(''),
+    [groupQuantity, setGroupQuantity] = useState(1),
+    [groupUnit, setGroupUnit] = useState<BoqUnit>('Nos'),
     [compare, setCompare] = useState(false),
     [projectActions, setProjectActions] = useState(false),
     [assignmentModal, setAssignmentModal] = useState(false),
@@ -2984,6 +2986,8 @@ function Builder({ s }: { s: Store }) {
                 onClick={() => {
                   setItemModal(false);
                   setGroupName('');
+                  setGroupQuantity(1);
+                  setGroupUnit('Nos');
                   setGroupModal(true);
                 }}
               >
@@ -3036,7 +3040,10 @@ function Builder({ s }: { s: Store }) {
                   typeof descriptionValue === 'string' ? descriptionValue : '',
                 workType:
                   selectedWorkType === 'All' ? 'Other' : selectedWorkType,
-                quantity: 0,
+                quantity: groupQuantity,
+                unit: groupUnit,
+                measurementType: measurementForUnit(groupUnit),
+                measureMode: 'quantity',
                 rates: { standard: 0, premium: 0, luxury: 0 },
                 subUnits: [],
               };
@@ -3070,6 +3077,29 @@ function Builder({ s }: { s: Store }) {
                   placeholder="Describe the complete commercial scope"
                 />
               </label>
+              <div className="group-measure-fields">
+                <label>
+                  Overall quantity
+                  <Num
+                    value={groupQuantity}
+                    onChange={setGroupQuantity}
+                  />
+                </label>
+                <label htmlFor="composite-group-unit">
+                  Overall unit
+                  <select
+                    id="composite-group-unit"
+                    value={groupUnit}
+                    onChange={(event) =>
+                      setGroupUnit(event.target.value as BoqUnit)
+                    }
+                  >
+                    {BOQ_UNITS.map((unit) => (
+                      <option key={unit}>{unit}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
             </div>
             <div className="actions">
               <Button type="button" variant="outline" onClick={() => setGroupModal(false)}>
@@ -3343,6 +3373,8 @@ function CompositeItem({
     description: item.description,
     workType: item.workType ?? 'Other',
     notes: item.notes,
+    quantity: item.quantity,
+    unit: item.unit ?? unitForMeasurement(item.measurementType),
   });
   const components = orderedCompositeChildren(room, item);
   const openEditor = () => {
@@ -3351,6 +3383,8 @@ function CompositeItem({
       description: item.description,
       workType: item.workType ?? 'Other',
       notes: item.notes,
+      quantity: item.quantity,
+      unit: item.unit ?? unitForMeasurement(item.measurementType),
     });
     setEditing(true);
   };
@@ -3369,6 +3403,7 @@ function CompositeItem({
             <small>
               {components.length} {components.length === 1 ? 'component' : 'components'}
             </small>
+            <small className="composite-measure">{itemMeasureLabel(item)}</small>
           </span>
         </button>
         {canManageFinancials && (
@@ -3383,7 +3418,9 @@ function CompositeItem({
           <Trash2 />
         </Button>
       </header>
-      {item.description && <p>{item.description}</p>}
+      {item.description && (
+        <p className="composite-description">{item.description}</p>
+      )}
       {expanded && (
         <div className="composite-children">
           {children}
@@ -3409,6 +3446,10 @@ function CompositeItem({
                 description: draft.description,
                 workType: draft.workType,
                 notes: draft.notes,
+                quantity: draft.quantity,
+                unit: draft.unit,
+                measurementType: measurementForUnit(draft.unit),
+                measureMode: 'quantity',
               });
               setEditing(false);
             }}
@@ -3457,6 +3498,34 @@ function CompositeItem({
                   ))}
                 </select>
               </label>
+              <div className="group-measure-fields">
+                <label>
+                  Overall quantity
+                  <Num
+                    value={draft.quantity}
+                    onChange={(quantity) =>
+                      setDraft((current) => ({ ...current, quantity }))
+                    }
+                  />
+                </label>
+                <label htmlFor={`edit-group-unit-${item.id}`}>
+                  Overall unit
+                  <select
+                    id={`edit-group-unit-${item.id}`}
+                    value={draft.unit}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        unit: event.target.value as BoqUnit,
+                      }))
+                    }
+                  >
+                    {BOQ_UNITS.map((unit) => (
+                      <option key={unit}>{unit}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
               <label htmlFor={`edit-group-notes-${item.id}`}>
                 Notes
                 <textarea
@@ -4683,7 +4752,10 @@ function ProjectRates({ s }: { s: Store }) {
                   <Fragment key={row.key}>
                   {showParent && row.parent && (
                     <tr className="composite-rate-heading">
-                      <td colSpan={9}>
+                      <td>{row.parent.workType ?? 'Other'}</td>
+                      <td>{row.floorName}</td>
+                      <td>{row.room.name}</td>
+                      <td className="rate-item-cell composite-parent-cell">
                         <button
                           type="button"
                           className="composite-rate-toggle"
@@ -4703,20 +4775,33 @@ function ProjectRates({ s }: { s: Store }) {
                             <strong>{row.parent.name}</strong>
                             <small>
                               {orderedCompositeChildren(row.room, row.parent).length}{' '}
-                              components · {row.floorName} · {row.room.name}
+                              components
                             </small>
                           </span>
-                          <em>No parent rate</em>
-                          <b>
-                            {inr(
-                              compositeTotal(
-                                row.parent,
-                                row.room,
-                                project.defaultTier,
-                              ),
-                            )}
-                          </b>
                         </button>
+                      </td>
+                      <td className="number-cell">
+                        {itemMeasure(row.parent).toLocaleString('en-IN', {
+                          maximumFractionDigits: 3,
+                        })}
+                      </td>
+                      <td>
+                        {row.parent.customUnit ||
+                          row.parent.unit ||
+                          unitForMeasurement(row.parent.measurementType)}
+                      </td>
+                      <td className="composite-empty-cell">—</td>
+                      <td className="composite-empty-cell">—</td>
+                      <td className="amount-cell">
+                        <strong>
+                          {inr(
+                            compositeTotal(
+                              row.parent,
+                              row.room,
+                              project.defaultTier,
+                            ),
+                          )}
+                        </strong>
                       </td>
                     </tr>
                   )}
@@ -4729,7 +4814,6 @@ function ProjectRates({ s }: { s: Store }) {
                     <td>{row.room.name}</td>
                     <td className="rate-item-cell">
                       <div className="rate-item-content">
-                        {row.parent && <span className="composite-branch">↳</span>}
                         <span>
                           <strong>{row.item.name}</strong>
                           {row.item.description && (

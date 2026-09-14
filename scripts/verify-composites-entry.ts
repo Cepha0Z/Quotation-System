@@ -21,7 +21,7 @@ const simple = (id: string, name: string, rate: number): QuoteItem => ({
 });
 const parent: QuoteItem = {
   ...simple('group', 'Kitchen Cabinets', 999999),
-  itemType: 'composite', childrenOrder: ['shutter', 'carcass'],
+  itemType: 'composite', childrenOrder: ['shutter', 'carcass'], quantity: 32, unit: 'Sq.ft', measurementType: 'sqft', measureMode: 'quantity',
 };
 const carcass = { ...simple('carcass', 'Carcass', 210000), parentItemId: parent.id };
 const shutter = { ...simple('shutter', 'Shutters', 160000), parentItemId: parent.id };
@@ -29,6 +29,7 @@ const room: Room = { id: 'room', name: 'Kitchen', floorId: 'floor', items: [pare
 
 assert.equal(itemTotal(parent, 'standard'), 0, 'composite parents must never carry a price');
 assert.equal(compositeTotal(parent, room, 'standard'), 370000);
+assert.equal(compositeTotal({ ...parent, quantity: 999 }, room, 'standard'), 370000, 'parent quantity must not affect its child-derived total');
 assert.equal(roomTotal(room, 'standard'), 370000, 'children must be counted exactly once');
 assert.equal(
   compositeTotal(parent, { ...room, items: [parent, { ...carcass, enabled: false }, shutter] }, 'standard'),
@@ -84,6 +85,8 @@ assert.equal(financial.rooms.room.items.group, undefined, 'parent money must not
 assert.equal(financial.rooms.room.items.carcass.rates.standard, 210000);
 const reloaded = combineProject(technical, financial);
 assert.equal(compositeTotal(reloaded.rooms[0].items[0], reloaded.rooms[0], 'standard'), 370000);
+assert.equal(reloaded.rooms[0].items[0].quantity, 32);
+assert.equal(reloaded.rooms[0].items[0].unit, 'Sq.ft');
 
 const rulesText = readFileSync('database.rules.json', 'utf8');
 const rules = JSON.parse(rulesText);

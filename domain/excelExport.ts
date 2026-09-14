@@ -365,7 +365,7 @@ function applyDocumentHeader(
     },
   };
   for (const row of [3, 4, 5]) {
-    styleRow(X, ws, row, (column) => ({
+    styleRow(X, ws, row, (column, cell) => ({
       fill: fill(column === 0 || column === 4 ? c.greenPale : c.surfaceStrong),
       font:
         column === 0 || column === 4
@@ -412,36 +412,6 @@ function styleDetailSheet(
     merges.push({ s: { r: row, c: 1 }, e: { r: row, c: 6 } }),
   );
   markers.spaceRows.forEach((row) => mergeRow(merges, row));
-  markers.groupRows.forEach((row) =>
-    merges.push({ s: { r: row, c: 1 }, e: { r: row, c: 5 } }),
-  );
-  markers.childRows.forEach((row) =>
-    styleRow(X, ws, row, (column, cell) => ({
-      fill: fill(c.surface),
-      font: font(10),
-      alignment: {
-        vertical: 'center',
-        horizontal:
-          column === 1
-            ? 'left'
-            : column === 0 || column === 2 || column === 3 || column === 4
-              ? 'center'
-              : 'right',
-        indent: column === 1 ? 1 : 0,
-        wrapText: column === 1,
-      },
-      border: {
-        ...borders.grid,
-        left: column === 0 ? edge('medium', c.headerLine) : borders.grid.left,
-      },
-      numFmt:
-        column === 3 && typeof cell.v === 'number'
-          ? EXCEL_THEME.numberFormats.quantity
-          : (column === 5 || column === 6) && typeof cell.v === 'number'
-            ? EXCEL_THEME.numberFormats.currency
-            : undefined,
-    })),
-  );
   markers.spaceSubtotalRows.forEach((row) => mergeLabelRow(merges, row));
   markers.floorSubtotalRows.forEach((row) => mergeLabelRow(merges, row));
   mergeLabelRow(merges, markers.totalRow);
@@ -473,6 +443,36 @@ function styleDetailSheet(
               : undefined,
     }));
   }
+
+  // Apply hierarchy styling after the base grid pass so the child indent is
+  // retained in the serialized workbook rather than overwritten.
+  markers.childRows.forEach((row) =>
+    styleRow(X, ws, row, (column, cell) => ({
+      fill: fill(c.surface),
+      font: font(10),
+      alignment: {
+        vertical: 'center',
+        horizontal:
+          column === 1
+            ? 'left'
+            : column === 0 || column === 2 || column === 3 || column === 4
+              ? 'center'
+              : 'right',
+        indent: column === 1 ? 1 : 0,
+        wrapText: column === 1,
+      },
+      border: {
+        ...borders.grid,
+        left: column === 0 ? edge('medium', c.headerLine) : borders.grid.left,
+      },
+      numFmt:
+        column === 3 && typeof cell.v === 'number'
+          ? EXCEL_THEME.numberFormats.quantity
+          : (column === 5 || column === 6) && typeof cell.v === 'number'
+            ? EXCEL_THEME.numberFormats.currency
+            : undefined,
+    })),
+  );
 
   applyDocumentHeader(X, ws, merges);
 
@@ -526,7 +526,7 @@ function styleDetailSheet(
     })),
   );
   markers.groupRows.forEach((row) =>
-    styleRow(X, ws, row, (column) => ({
+    styleRow(X, ws, row, (column, cell) => ({
       fill: fill(c.greenSoft),
       font: font(10, {
         bold: true,
@@ -534,7 +534,12 @@ function styleDetailSheet(
       }),
       alignment: {
         vertical: 'center',
-        horizontal: column === 6 ? 'right' : 'left',
+        horizontal:
+          column === 1
+            ? 'left'
+            : column === 0 || column === 2 || column === 3 || column === 4
+              ? 'center'
+              : 'right',
         indent: column === 1 ? 1 : 0,
         wrapText: column === 1,
       },
@@ -544,6 +549,12 @@ function styleDetailSheet(
         left: column === 0 ? edge('medium', c.green) : undefined,
         right: column === 6 ? edge('medium', c.green) : undefined,
       },
+      numFmt:
+        column === 3 && typeof cell.v === 'number'
+          ? EXCEL_THEME.numberFormats.quantity
+          : column === 6 && typeof cell.v === 'number'
+            ? EXCEL_THEME.numberFormats.currency
+            : undefined,
     })),
   );
   markers.spaceSubtotalRows.forEach((row) =>
@@ -1159,15 +1170,14 @@ export async function createProjectExcelFile(
             groupRows.push(rows.length);
             rows.push([
               '',
-              `${entry.item.name.toUpperCase()}${description ? `\n${description}` : ''}`,
-              '',
-              '',
-              '',
-              '',
-              `₹${total.toLocaleString('en-IN', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}`,
+              `${entry.item.name}${description ? `: ${description}` : ''}`,
+              entry.item.hsnCode ?? '',
+              itemMeasure(entry.item),
+              entry.item.customUnit ||
+                entry.item.unit ||
+                unitForMeasurement(entry.item.measurementType),
+              '—',
+              total,
             ]);
             continue;
           }
@@ -1194,7 +1204,7 @@ export async function createProjectExcelFile(
             )
             .join(', ');
           const particulars = [
-            `${parent ? '↳ ' : ''}${item.name}${item.description ? `: ${item.description}` : ''}`,
+            `${item.name}${item.description ? `: ${item.description}` : ''}`,
             dimensions
               ? `Size: ${dimensions} ${item.dimensionUnit ?? 'ft'}`
               : '',

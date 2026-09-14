@@ -2848,7 +2848,17 @@ textarea {
 .composite-toggle small,
 .composite-item > p { color: var(--muted, #66736e); }
 .composite-total { font-size: 18px; white-space: nowrap; }
-.composite-item > p { margin: 0; padding: 0 18px 14px 48px; }
+.composite-measure { color: #345e53 !important; font-weight: 650; }
+.composite-description {
+  box-sizing: border-box;
+  min-height: 52px;
+  margin: 0;
+  padding: 10px 18px 14px 48px;
+  display: flex;
+  align-items: center;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
 .composite-children { display: grid; gap: 12px; padding: 14px; }
 .composite-children .item { background: white; }
 .composite-children .add-component { width: 100%; border-style: dashed; }
@@ -2875,6 +2885,15 @@ textarea {
   padding: 24px;
 }
 .edit-group-form .form-grid { gap: 16px; }
+.group-measure-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+}
+.group-measure-fields label {
+  display: grid;
+  gap: 8px;
+}
 .edit-group-form .form-grid label {
   gap: 8px;
   color: #31443d;
@@ -2905,6 +2924,10 @@ textarea {
   background: #eef4f1;
   color: #53665f;
   font-size: 12px;
+}
+@media (max-width: 560px) {
+  .group-measure-fields { grid-template-columns: 1fr; }
+  .composite-description { padding-left: 18px; }
 }
 .room-components .item {
   width: 100%;
@@ -5261,8 +5284,8 @@ body {
   border-radius: 10px;
 }
 .rates-table .composite-rate-heading td {
-  height: auto;
-  padding: 0;
+  height: 66px;
+  padding: 8px 10px;
   background: #deebe6;
   border-top: 2px solid #789d91;
   border-bottom: 1px solid #9fb8ad;
@@ -5270,12 +5293,11 @@ body {
 }
 .composite-rate-toggle {
   width: 100%;
-  min-height: 66px;
-  display: grid;
-  grid-template-columns: 22px minmax(220px, 1fr) auto minmax(110px, auto);
+  min-height: 48px;
+  display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 11px 14px;
+  gap: 8px;
+  padding: 0;
   color: inherit;
   text-align: left;
 }
@@ -5286,25 +5308,13 @@ body {
 .composite-rate-toggle small { display: block; }
 .composite-rate-toggle strong {
   font-size: 14px;
-  letter-spacing: 0.025em;
-  text-transform: uppercase;
 }
 .composite-rate-toggle small {
   margin-top: 3px;
   color: #61736c;
   font-weight: 500;
 }
-.composite-rate-toggle em {
-  color: #71817b;
-  font-size: 11px;
-  font-style: normal;
-}
-.composite-rate-toggle b {
-  color: #103f34;
-  font-size: 15px;
-  text-align: right;
-  white-space: nowrap;
-}
+.composite-empty-cell { color: #71817b; text-align: center; }
 .rates-table .composite-child-row td {
   background: #fbfdfc;
 }
@@ -5315,6 +5325,18 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.composite-child-row .rate-item-content {
+  position: relative;
+  padding-left: 40px;
+}
+.composite-child-row .rate-item-content::before {
+  content: "";
+  position: absolute;
+  left: 18px;
+  top: -18px;
+  bottom: -18px;
+  border-left: 1px solid #abc0b8;
 }
 .rate-item-content > span:nth-child(2) { min-width: 0; flex: 1; }
 .composite-branch {
