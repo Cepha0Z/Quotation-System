@@ -441,6 +441,94 @@ async function main() {
     }
   }
 
+  const group = makeItem('kitchen-group', 'Kitchen Cabinets', 'Civil Work', {
+    itemType: 'composite',
+    childrenOrder: ['base', 'wall', 'wardrobe', 'ceiling'],
+    description: 'Complete kitchen cabinetry scope',
+    rates: { standard: 999_999, premium: 999_999, luxury: 999_999 },
+  });
+  const component = (
+    id: string,
+    name: string,
+    quantity: number,
+    unit: QuoteItem['unit'],
+    rate: number,
+  ) =>
+    makeItem(id, name, 'Civil Work', {
+      parentItemId: group.id,
+      quantity,
+      unit,
+      measurementType: unit === 'R.ft' ? 'rft' : 'sqft',
+      measureMode: 'quantity',
+      rates: { standard: rate, premium: rate, luxury: rate },
+    });
+  const wardrobe = component('wardrobe', 'Wardrobe', 32, 'Sq.ft', 1_000);
+  const wall = component('wall', 'Wall Cabinets', 8, 'R.ft', 9_200);
+  const base = component('base', 'Base Cabinets', 8, 'R.ft', 11_500);
+  const ceiling = component('ceiling', 'False Ceiling', 32, 'Sq.ft', 180);
+  const bedBack = makeItem('bed-back', 'Bed Back Panel', 'Civil Work', {
+    quantity: 32,
+    unit: 'Sq.ft',
+    measurementType: 'sqft',
+    measureMode: 'quantity',
+    rates: { standard: 1_100, premium: 1_100, luxury: 1_100 },
+  });
+  const compositeProject: Project = {
+    ...project,
+    id: 'composite-export-project',
+    defaultTier: 'standard',
+    projectDiscount: 0,
+    floors: [{ id: 'ground', name: 'Ground Floor' }],
+    rooms: [
+      {
+        id: 'living',
+        name: 'Living Room',
+        floorId: 'ground',
+        items: [group, wardrobe, wall, base, ceiling, bedBack],
+      },
+    ],
+    fees: [],
+  };
+  const compositeExport = await createProjectExcelFile(
+    compositeProject,
+    firmSettings,
+    { generatedAt: new Date('2026-09-12T00:00:00.000Z') },
+  );
+  const compositeWorkbook = X.read(compositeExport.bytes, {
+    type: 'array',
+    cellStyles: true,
+  });
+  const compositeRows = X.utils.sheet_to_json<unknown[]>(
+    compositeWorkbook.Sheets['Civil Work'],
+    { header: 1, raw: true },
+  );
+  const groupRow = compositeRows.findIndex(
+    (row) => row[1] === 'KITCHEN CABINETS\nComplete kitchen cabinetry scope',
+  );
+  if (groupRow < 0 || compositeRows[groupRow][6] !== '₹2,03,360.00')
+    throw new Error('Composite parent heading or visual total is incorrect.');
+  const exportedNames = compositeRows
+    .slice(groupRow + 1, groupRow + 5)
+    .map((row) => String(row[1]).split(':')[0]);
+  if (
+    JSON.stringify(exportedNames) !==
+    JSON.stringify([
+      '↳ Base Cabinets',
+      '↳ Wall Cabinets',
+      '↳ Wardrobe',
+      '↳ False Ceiling',
+    ])
+  )
+    throw new Error('Composite children did not follow childrenOrder.');
+  const livingSubtotal = compositeRows.find(
+    (row) => row[0] === 'Living Room subtotal',
+  );
+  if (
+    livingSubtotal?.[6] !== 238_560 ||
+    quoteTotals(compositeProject).interior !== 238_560
+  )
+    throw new Error('Composite export double-counted its parent or children.');
+
   console.log(
     JSON.stringify(
       {

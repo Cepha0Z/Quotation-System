@@ -70,8 +70,10 @@ import {
 } from '@/domain/pricing';
 import {
   isCompositeItem,
+  matchesHierarchySearch,
   moveCompositeChild,
   orderedCompositeChildren,
+  orderedPriceableItems,
   removeItemTree,
 } from '@/domain/composites';
 import {
@@ -2582,13 +2584,19 @@ function Builder({ s }: { s: Store }) {
                                   ? candidate
                                   : {
                                       ...candidate,
-                                      items: candidate.items.map((entry) =>
-                                        entry.id === item.id ||
-                                        (change.workType !== undefined &&
-                                          entry.parentItemId === item.id)
-                                          ? { ...entry, ...change }
-                                          : entry,
-                                      ),
+                                      items: candidate.items.map((entry) => {
+                                        if (entry.id === item.id)
+                                          return { ...entry, ...change };
+                                        if (
+                                          change.workType !== undefined &&
+                                          entry.parentItemId === item.id
+                                        )
+                                          return {
+                                            ...entry,
+                                            workType: change.workType,
+                                          };
+                                        return entry;
+                                      }),
                                     },
                               ),
                             }))
@@ -3007,8 +3015,14 @@ function Builder({ s }: { s: Store }) {
         </Modal>
       )}
       {groupModal && room && (
-        <Modal title="Create a grouped BOQ item" close={() => setGroupModal(false)}>
+        <Modal
+          title="Create a grouped BOQ item"
+          subtitle="Create one scope with independently priced components."
+          className="edit-group-modal"
+          close={() => setGroupModal(false)}
+        >
           <form
+            className="edit-group-form"
             onSubmit={(event) => {
               event.preventDefault();
               if (!groupName.trim()) return;
@@ -3324,7 +3338,22 @@ function CompositeItem({
 }) {
   const [expanded, setExpanded] = useState(true);
   const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({
+    name: item.name,
+    description: item.description,
+    workType: item.workType ?? 'Other',
+    notes: item.notes,
+  });
   const components = orderedCompositeChildren(room, item);
+  const openEditor = () => {
+    setDraft({
+      name: item.name,
+      description: item.description,
+      workType: item.workType ?? 'Other',
+      notes: item.notes,
+    });
+    setEditing(true);
+  };
   return (
     <section className="composite-item">
       <header>
@@ -3347,37 +3376,14 @@ function CompositeItem({
             {inr(compositeTotal(item, room, p.defaultTier))}
           </strong>
         )}
-        <Button variant="outline" onClick={() => setEditing((value) => !value)}>
-          {editing ? 'Done' : 'Edit group'}
+        <Button variant="outline" onClick={openEditor}>
+          Edit group
         </Button>
         <Button variant="ghost" size="icon-lg" onClick={remove} aria-label={`Delete ${item.name}`}>
           <Trash2 />
         </Button>
       </header>
-      {item.description && !editing && <p>{item.description}</p>}
-      {editing && (
-        <div className="composite-editor">
-          <label htmlFor={`composite-name-${item.id}`}>
-            Name
-            <Input id={`composite-name-${item.id}`} value={item.name} onChange={(event) => patch({ name: event.target.value })} />
-          </label>
-          <label htmlFor={`composite-description-${item.id}`}>
-            Description
-            <textarea id={`composite-description-${item.id}`} value={item.description} onChange={(event) => patch({ description: event.target.value })} />
-          </label>
-          <label htmlFor={`composite-work-type-${item.id}`}>
-            Work type
-            <select id={`composite-work-type-${item.id}`} value={item.workType ?? 'Other'} onChange={(event) => patch({ workType: event.target.value })}>
-              {WORK_TYPES.map((entry) => <option key={entry}>{entry}</option>)}
-            </select>
-          </label>
-          <label htmlFor={`composite-notes-${item.id}`}>
-            Notes
-            <textarea id={`composite-notes-${item.id}`} value={item.notes} onChange={(event) => patch({ notes: event.target.value })} />
-          </label>
-          <aside>A group has no editable rate. Its total is the sum of its components.</aside>
-        </div>
-      )}
+      {item.description && <p>{item.description}</p>}
       {expanded && (
         <div className="composite-children">
           {children}
@@ -3385,6 +3391,104 @@ function CompositeItem({
             <Plus /> Add component
           </Button>
         </div>
+      )}
+      {editing && (
+        <Modal
+          title="Edit group"
+          subtitle="Update the grouped scope without changing component pricing."
+          className="edit-group-modal"
+          close={() => setEditing(false)}
+        >
+          <form
+            className="edit-group-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!draft.name.trim()) return;
+              patch({
+                name: draft.name.trim(),
+                description: draft.description,
+                workType: draft.workType,
+                notes: draft.notes,
+              });
+              setEditing(false);
+            }}
+          >
+            <div className="form-grid single-column">
+              <label htmlFor={`edit-group-name-${item.id}`}>
+                Group name
+                <Input
+                  id={`edit-group-name-${item.id}`}
+                  value={draft.name}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      name: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label htmlFor={`edit-group-description-${item.id}`}>
+                Description
+                <textarea
+                  id={`edit-group-description-${item.id}`}
+                  value={draft.description}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      description: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label htmlFor={`edit-group-work-type-${item.id}`}>
+                Work type
+                <select
+                  id={`edit-group-work-type-${item.id}`}
+                  value={draft.workType}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      workType: event.target.value,
+                    }))
+                  }
+                >
+                  {WORK_TYPES.map((entry) => (
+                    <option key={entry}>{entry}</option>
+                  ))}
+                </select>
+              </label>
+              <label htmlFor={`edit-group-notes-${item.id}`}>
+                Notes
+                <textarea
+                  id={`edit-group-notes-${item.id}`}
+                  value={draft.notes}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      notes: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+            </div>
+            <p className="group-rate-note">
+              A group has no editable rate. Its total is calculated from its
+              components.
+            </p>
+            <div className="actions">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setEditing(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={!draft.name.trim()}>
+                Save group
+              </Button>
+            </div>
+          </form>
+        </Modal>
       )}
     </section>
   );
@@ -4282,6 +4386,7 @@ function ProjectRates({ s }: { s: Store }) {
     >({}),
     [pending, setPending] = useState<Set<string>>(new Set()),
     [failed, setFailed] = useState<Set<string>>(new Set()),
+    [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set()),
     timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({}),
     pendingKeys = useRef(new Set<string>()),
     rateInputs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -4297,7 +4402,8 @@ function ProjectRates({ s }: { s: Store }) {
     (project.floors ?? []).map((entry) => [entry.id, entry.name]),
   );
   const rows: ProjectRateRow[] = project.rooms.flatMap((room) =>
-    room.items.filter((item) => !isCompositeItem(item)).map((item) => ({
+    orderedPriceableItems(room)
+      .map((item) => ({
       key: `${room.id}:${item.id}`,
       room,
       floorName: floorNames.get(room.floorId ?? '') ?? 'Unassigned',
@@ -4309,7 +4415,7 @@ function ProjectRates({ s }: { s: Store }) {
           )
         : undefined,
       hasTemplate: Boolean(resolveTemplate(item, s.rates)),
-    })),
+      })),
   );
   const workTypes = [
     ...new Set(rows.map((row) => row.item.workType ?? 'Other')),
@@ -4325,21 +4431,17 @@ function ProjectRates({ s }: { s: Store }) {
   const query = search.trim().toLowerCase();
   const visibleRows = rows.filter(
     (row) =>
-      (workType === 'All' || (row.item.workType ?? 'Other') === workType) &&
+      (workType === 'All' ||
+        (row.item.workType ?? 'Other') === workType ||
+        row.parent?.workType === workType) &&
       (floor === 'All' || row.floorName === floor) &&
       (space === 'All' || row.room.name === space) &&
-      (!query ||
-        [
-          row.item.name,
-          row.item.description,
-          row.item.notes,
-          row.item.hsnCode,
-          row.item.workType,
-          row.room.name,
-          row.floorName,
-          row.parent?.name,
-          row.parent?.description,
-        ].some((value) => value?.toLowerCase().includes(query))),
+      matchesHierarchySearch(
+        row.item,
+        row.parent,
+        [row.room.name, row.floorName],
+        query,
+      ),
   );
 
   const draftRate = (row: ProjectRateRow) => {
@@ -4413,6 +4515,37 @@ function ProjectRates({ s }: { s: Store }) {
     timers.current[row.key] = setTimeout(() => {
       void saveRow(row, value);
     }, 600);
+  };
+  const groupKey = (row: ProjectRateRow) =>
+    row.parent ? `${row.room.id}:${row.parent.id}` : '';
+  const reorderChild = (
+    row: ProjectRateRow,
+    direction: -1 | 1,
+  ) => {
+    if (!row.parent) return;
+    s.setProjects(
+      s.projects.map((candidateProject) =>
+        candidateProject.id !== project.id
+          ? candidateProject
+          : {
+              ...candidateProject,
+              updatedAt: new Date().toISOString(),
+              rooms: candidateProject.rooms.map((candidateRoom) =>
+                candidateRoom.id !== row.room.id
+                  ? candidateRoom
+                  : {
+                      ...candidateRoom,
+                      items: moveCompositeChild(
+                        candidateRoom.items,
+                        row.parent!.id,
+                        row.item.id,
+                        direction,
+                      ),
+                    },
+              ),
+            },
+      ),
+    );
   };
 
   return (
@@ -4535,34 +4668,97 @@ function ProjectRates({ s }: { s: Store }) {
                   visibleRows.findIndex(
                     (candidate) => candidate.parent?.id === row.parent?.id,
                   ) === index;
+                const currentGroupKey = groupKey(row);
+                const groupCollapsed =
+                  Boolean(row.parent) && collapsedGroups.has(currentGroupKey);
+                const groupExpanded = Boolean(query) || !groupCollapsed;
+                const showChild = !row.parent || groupExpanded;
+                const siblingOrder = row.parent
+                  ? orderedCompositeChildren(row.room, row.parent)
+                  : [];
+                const siblingIndex = siblingOrder.findIndex(
+                  (item) => item.id === row.item.id,
+                );
                 return (
                   <Fragment key={row.key}>
                   {showParent && row.parent && (
                     <tr className="composite-rate-heading">
-                      <td colSpan={7}>
-                        <strong>{row.parent.name}</strong>
-                        <small>
-                          {orderedCompositeChildren(row.room, row.parent).length}{' '}
-                          components · {row.floorName} · {row.room.name}
-                        </small>
-                      </td>
-                      <td>No parent rate</td>
-                      <td className="amount-cell">
-                        {inr(compositeTotal(row.parent, row.room, project.defaultTier))}
+                      <td colSpan={9}>
+                        <button
+                          type="button"
+                          className="composite-rate-toggle"
+                          aria-expanded={groupExpanded}
+                          onClick={() =>
+                            setCollapsedGroups((current) => {
+                              const next = new Set(current);
+                              if (next.has(currentGroupKey))
+                                next.delete(currentGroupKey);
+                              else next.add(currentGroupKey);
+                              return next;
+                            })
+                          }
+                        >
+                          {groupExpanded ? <ChevronDown /> : <ChevronRight />}
+                          <span>
+                            <strong>{row.parent.name}</strong>
+                            <small>
+                              {orderedCompositeChildren(row.room, row.parent).length}{' '}
+                              components · {row.floorName} · {row.room.name}
+                            </small>
+                          </span>
+                          <em>No parent rate</em>
+                          <b>
+                            {inr(
+                              compositeTotal(
+                                row.parent,
+                                row.room,
+                                project.defaultTier,
+                              ),
+                            )}
+                          </b>
+                        </button>
                       </td>
                     </tr>
                   )}
+                  {showChild && (
                   <tr
-                    className={!row.item.enabled ? 'rate-row-disabled' : ''}
+                    className={`${row.parent ? 'composite-child-row' : ''} ${!row.item.enabled ? 'rate-row-disabled' : ''}`}
                   >
                     <td>{row.item.workType ?? 'Other'}</td>
                     <td>{row.floorName}</td>
                     <td>{row.room.name}</td>
                     <td className="rate-item-cell">
-                      <strong>{row.parent ? `↳ ${row.item.name}` : row.item.name}</strong>
-                      {row.item.description && (
-                        <small>{row.item.description}</small>
-                      )}
+                      <div className="rate-item-content">
+                        {row.parent && <span className="composite-branch">↳</span>}
+                        <span>
+                          <strong>{row.item.name}</strong>
+                          {row.item.description && (
+                            <small>{row.item.description}</small>
+                          )}
+                        </span>
+                        {row.parent && (
+                          <span className="child-order-controls">
+                            <button
+                              type="button"
+                              disabled={siblingIndex <= 0}
+                              onClick={() => reorderChild(row, -1)}
+                              aria-label={`Move ${row.item.name} up`}
+                              title="Move component up"
+                            >
+                              <ChevronUp />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={siblingIndex === siblingOrder.length - 1}
+                              onClick={() => reorderChild(row, 1)}
+                              aria-label={`Move ${row.item.name} down`}
+                              title="Move component down"
+                            >
+                              <ChevronDown />
+                            </button>
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="number-cell">
                       {itemMeasure(row.item).toLocaleString('en-IN', {
@@ -4696,6 +4892,7 @@ function ProjectRates({ s }: { s: Store }) {
                         : inr(itemTotal(previewItem, project.defaultTier))}
                     </td>
                   </tr>
+                  )}
                   </Fragment>
                 );
               })}

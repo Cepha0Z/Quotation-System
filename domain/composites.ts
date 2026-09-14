@@ -23,6 +23,34 @@ export function orderedCompositeChildren(room: Room, parent: QuoteItem) {
   });
 }
 
+export function orderedPriceableItems(room: Room) {
+  return room.items
+    .filter((item) => !item.parentItemId)
+    .flatMap((item) =>
+      isCompositeItem(item) ? orderedCompositeChildren(room, item) : [item],
+    );
+}
+
+export function matchesHierarchySearch(
+  item: QuoteItem,
+  parent: QuoteItem | undefined,
+  context: Array<string | undefined>,
+  query: string,
+) {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return true;
+  return [
+    item.name,
+    item.description,
+    item.notes,
+    item.hsnCode,
+    item.workType,
+    parent?.name,
+    parent?.description,
+    ...context,
+  ].some((value) => value?.toLowerCase().includes(normalized));
+}
+
 export function normalizeCompositeItems(items: QuoteItem[]) {
   const compositeIds = new Set(
     items.filter(isCompositeItem).map((item) => item.id),

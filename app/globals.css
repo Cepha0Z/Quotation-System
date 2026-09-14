@@ -2849,25 +2849,6 @@ textarea {
 .composite-item > p { color: var(--muted, #66736e); }
 .composite-total { font-size: 18px; white-space: nowrap; }
 .composite-item > p { margin: 0; padding: 0 18px 14px 48px; }
-.composite-editor {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
-  padding: 16px 18px;
-  border-bottom: 1px solid #dbe2de;
-  background: white;
-}
-.composite-editor label { display: grid; gap: 7px; color: #56645f; font-weight: 600; }
-.composite-editor textarea,
-.composite-editor select {
-  width: 100%;
-  min-height: 44px;
-  border: 1px solid #d8ddd9;
-  border-radius: 10px;
-  padding: 10px 12px;
-  background: white;
-}
-.composite-editor aside { grid-column: 1 / -1; color: #66736e; font-size: 13px; }
 .composite-children { display: grid; gap: 12px; padding: 14px; }
 .composite-children .item { background: white; }
 .composite-children .add-component { width: 100%; border-style: dashed; }
@@ -2877,7 +2858,53 @@ textarea {
   .composite-item > header { align-items: flex-start; flex-wrap: wrap; }
   .composite-toggle { flex-basis: calc(100% - 52px); }
   .composite-total { margin-left: 30px; }
-  .composite-editor { grid-template-columns: 1fr; }
+}
+
+.edit-group-modal {
+  width: min(620px, 100%);
+  padding: 0;
+  overflow: hidden;
+}
+.edit-group-modal > header {
+  margin: 0;
+  padding: 22px 24px;
+}
+.edit-group-form {
+  display: grid;
+  gap: 20px;
+  padding: 24px;
+}
+.edit-group-form .form-grid { gap: 16px; }
+.edit-group-form .form-grid label {
+  gap: 8px;
+  color: #31443d;
+  font-size: 13px;
+  font-weight: 650;
+}
+.edit-group-form textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 104px;
+  height: auto;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #fff;
+  line-height: 1.5;
+  resize: vertical;
+}
+.edit-group-form textarea:focus {
+  border-color: #6f9489;
+  outline: 2px solid rgba(28, 92, 76, 0.12);
+  outline-offset: 1px;
+}
+.group-rate-note {
+  margin: 0;
+  padding: 11px 13px;
+  border-radius: 7px;
+  background: #eef4f1;
+  color: #53665f;
+  font-size: 12px;
 }
 .room-components .item {
   width: 100%;
@@ -5234,16 +5261,86 @@ body {
   border-radius: 10px;
 }
 .rates-table .composite-rate-heading td {
-  background: #e6efeb;
-  border-top: 2px solid #9fb8ad;
+  height: auto;
+  padding: 0;
+  background: #deebe6;
+  border-top: 2px solid #789d91;
+  border-bottom: 1px solid #9fb8ad;
   color: #173f35;
 }
-.rates-table .composite-rate-heading td:first-child {
-  padding-left: 18px;
+.composite-rate-toggle {
+  width: 100%;
+  min-height: 66px;
+  display: grid;
+  grid-template-columns: 22px minmax(220px, 1fr) auto minmax(110px, auto);
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  color: inherit;
+  text-align: left;
 }
-.composite-rate-heading strong,
-.composite-rate-heading small { display: block; }
-.composite-rate-heading small { margin-top: 3px; color: #61736c; font-weight: 500; }
+.composite-rate-toggle:hover { background: rgba(255, 255, 255, 0.3); }
+.composite-rate-toggle > svg { width: 18px; height: 18px; }
+.composite-rate-toggle > span { min-width: 0; }
+.composite-rate-toggle strong,
+.composite-rate-toggle small { display: block; }
+.composite-rate-toggle strong {
+  font-size: 14px;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+}
+.composite-rate-toggle small {
+  margin-top: 3px;
+  color: #61736c;
+  font-weight: 500;
+}
+.composite-rate-toggle em {
+  color: #71817b;
+  font-size: 11px;
+  font-style: normal;
+}
+.composite-rate-toggle b {
+  color: #103f34;
+  font-size: 15px;
+  text-align: right;
+  white-space: nowrap;
+}
+.rates-table .composite-child-row td {
+  background: #fbfdfc;
+}
+.rates-table .composite-child-row td:first-child {
+  border-left: 3px solid #9fb8ad;
+}
+.rate-item-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rate-item-content > span:nth-child(2) { min-width: 0; flex: 1; }
+.composite-branch {
+  align-self: flex-start;
+  margin-top: 1px;
+  color: #6e9186;
+  font-size: 18px;
+  font-weight: 700;
+}
+.child-order-controls {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: auto;
+}
+.child-order-controls button {
+  width: 25px;
+  height: 25px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #d1dbd7;
+  border-radius: 5px;
+  background: #fff;
+  color: #35584f;
+}
+.child-order-controls button:disabled { opacity: 0.3; cursor: default; }
+.child-order-controls svg { width: 14px; height: 14px; }
 .rates-table-wrap {
   width: 100%;
   overflow-x: auto;

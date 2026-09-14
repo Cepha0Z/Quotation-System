@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   moveCompositeChild,
+  matchesHierarchySearch,
   normalizeCompositeItems,
   orderedCompositeChildren,
+  orderedPriceableItems,
   removeItemTree,
 } from '../domain/composites';
 import { compositeTotal, itemTotal, roomTotal } from '../domain/pricing';
@@ -44,6 +46,10 @@ assert.equal(
   'negative component quantities must be clamped safely',
 );
 assert.deepEqual(orderedCompositeChildren(room, parent).map((item) => item.id), ['shutter', 'carcass']);
+assert.deepEqual(orderedPriceableItems(room).map((item) => item.id), ['shutter', 'carcass']);
+assert.equal(matchesHierarchySearch(carcass, parent, ['Kitchen'], 'carcass'), true);
+assert.equal(matchesHierarchySearch(carcass, parent, ['Kitchen'], 'kitchen cabinets'), true);
+assert.equal(matchesHierarchySearch(carcass, parent, ['Kitchen'], 'wardrobe'), false);
 assert.deepEqual(
   orderedCompositeChildren(
     { ...room, items: moveCompositeChild(room.items, parent.id, 'carcass', -1) },

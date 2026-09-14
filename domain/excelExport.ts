@@ -1,7 +1,13 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { WORK_TYPES, normalizeProject, unitForMeasurement } from './boq';
-import { itemBaseRate, itemMeasure, itemTotal, quoteTotals } from './pricing';
-import type { FirmSettings, Project } from './types';
+import { isCompositeItem, orderedCompositeChildren } from './composites';
+import {
+  itemBaseRate,
+  itemMeasure,
+  itemTotal,
+  quoteTotals,
+} from './pricing';
+import type { FirmSettings, Project, QuoteItem, Room } from './types';
 
 type Cell = {
   v?: unknown;
@@ -391,7 +397,9 @@ function styleDetailSheet(
     columnHeaderRows: number[];
     floorRows: number[];
     spaceRows: number[];
+    groupRows: number[];
     itemRows: number[];
+    childRows: number[];
     spaceSubtotalRows: number[];
     floorSubtotalRows: number[];
     totalRow: number;
@@ -404,6 +412,36 @@ function styleDetailSheet(
     merges.push({ s: { r: row, c: 1 }, e: { r: row, c: 6 } }),
   );
   markers.spaceRows.forEach((row) => mergeRow(merges, row));
+  markers.groupRows.forEach((row) =>
+    merges.push({ s: { r: row, c: 1 }, e: { r: row, c: 5 } }),
+  );
+  markers.childRows.forEach((row) =>
+    styleRow(X, ws, row, (column, cell) => ({
+      fill: fill(c.surface),
+      font: font(10),
+      alignment: {
+        vertical: 'center',
+        horizontal:
+          column === 1
+            ? 'left'
+            : column === 0 || column === 2 || column === 3 || column === 4
+              ? 'center'
+              : 'right',
+        indent: column === 1 ? 1 : 0,
+        wrapText: column === 1,
+      },
+      border: {
+        ...borders.grid,
+        left: column === 0 ? edge('medium', c.headerLine) : borders.grid.left,
+      },
+      numFmt:
+        column === 3 && typeof cell.v === 'number'
+          ? EXCEL_THEME.numberFormats.quantity
+          : (column === 5 || column === 6) && typeof cell.v === 'number'
+            ? EXCEL_THEME.numberFormats.currency
+            : undefined,
+    })),
+  );
   markers.spaceSubtotalRows.forEach((row) => mergeLabelRow(merges, row));
   markers.floorSubtotalRows.forEach((row) => mergeLabelRow(merges, row));
   mergeLabelRow(merges, markers.totalRow);
@@ -487,6 +525,27 @@ function styleDetailSheet(
       },
     })),
   );
+  markers.groupRows.forEach((row) =>
+    styleRow(X, ws, row, (column) => ({
+      fill: fill(c.greenSoft),
+      font: font(10, {
+        bold: true,
+        color: c.greenDark,
+      }),
+      alignment: {
+        vertical: 'center',
+        horizontal: column === 6 ? 'right' : 'left',
+        indent: column === 1 ? 1 : 0,
+        wrapText: column === 1,
+      },
+      border: {
+        top: edge('thin', c.headerLine),
+        bottom: edge('thin', c.headerLine),
+        left: column === 0 ? edge('medium', c.green) : undefined,
+        right: column === 6 ? edge('medium', c.green) : undefined,
+      },
+    })),
+  );
   markers.spaceSubtotalRows.forEach((row) =>
     styleRow(X, ws, row, (column, cell) => ({
       fill: fill(c.surfaceStrong),
@@ -550,6 +609,8 @@ function styleDetailSheet(
                     ? EXCEL_THEME.rowHeights.floor
                     : markers.spaceRows.includes(index)
                       ? EXCEL_THEME.rowHeights.space
+                      : markers.groupRows.includes(index)
+                        ? estimateWrappedHeight(row[1], 70)
                       : markers.itemRows.includes(index)
                         ? estimateWrappedHeight(row[1])
                         : markers.floorSubtotalRows.includes(index)
@@ -848,6 +909,32 @@ function patchNativeExcelFeatures(
   return zipSync(files, { level: 6 });
 }
 
+type DetailEntry =
+  | { kind: 'group'; item: QuoteItem; children: QuoteItem[] }
+  | { kind: 'item'; item: QuoteItem; parent?: QuoteItem };
+
+function orderedDetailEntries(space: Room, workType: string): DetailEntry[] {
+  return space.items
+    .filter((item) => !item.parentItemId)
+    .flatMap((item): DetailEntry[] => {
+      if (!isCompositeItem(item))
+        return item.enabled && (item.workType ?? 'Millwork') === workType
+          ? [{ kind: 'item', item }]
+          : [];
+      const children = orderedCompositeChildren(space, item).filter(
+        (child) =>
+          child.enabled && (child.workType ?? item.workType ?? 'Millwork') === workType,
+      );
+      if (!children.length) return [];
+      return [
+        { kind: 'group', item, children },
+        ...children.map(
+          (child): DetailEntry => ({ kind: 'item', item: child, parent: item }),
+        ),
+      ];
+    });
+}
+
 export async function createProjectExcelFile(
   sourceProject: Project,
   settings: FirmSettings,
@@ -1020,7 +1107,9 @@ export async function createProjectExcelFile(
     const columnHeaderRows: number[] = [];
     const floorRows: number[] = [];
     const spaceRows: number[] = [];
+    const groupRows: number[] = [];
     const itemRows: number[] = [];
+    const childRows: number[] = [];
     const spaceSubtotalRows: number[] = [];
     const floorSubtotalRows: number[] = [];
     let serial = 1;
@@ -1030,14 +1119,9 @@ export async function createProjectExcelFile(
         .filter((space) => space.floorId === floor.id)
         .map((space) => ({
           space,
-          items: space.items.filter(
-            (item) =>
-              item.enabled &&
-              item.itemType !== 'composite' &&
-              (item.workType ?? 'Millwork') === workType,
-          ),
+          entries: orderedDetailEntries(space, workType),
         }))
-        .filter(({ items }) => items.length > 0);
+        .filter(({ entries }) => entries.length > 0);
       if (!floorSpaces.length) continue;
       floorRows.push(rows.length);
       rows.push([
@@ -1051,7 +1135,7 @@ export async function createProjectExcelFile(
       ]);
       floorSection += 1;
       let floorTotal = 0;
-      for (const { space, items } of floorSpaces) {
+      for (const { space, entries } of floorSpaces) {
         spaceRows.push(rows.length);
         rows.push([space.name, '', '', '', '', '', '']);
         columnHeaderRows.push(rows.length);
@@ -1065,7 +1149,29 @@ export async function createProjectExcelFile(
           'Amount (₹)',
         ]);
         let spaceTotal = 0;
-        for (const item of items) {
+        for (const entry of entries) {
+          if (entry.kind === 'group') {
+            const total = entry.children.reduce(
+              (sum, child) => sum + itemTotal(child, project.defaultTier),
+              0,
+            );
+            const description = entry.item.description.trim();
+            groupRows.push(rows.length);
+            rows.push([
+              '',
+              `${entry.item.name.toUpperCase()}${description ? `\n${description}` : ''}`,
+              '',
+              '',
+              '',
+              '',
+              `₹${total.toLocaleString('en-IN', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}`,
+            ]);
+            continue;
+          }
+          const { item, parent } = entry;
           const dimensions =
             item.measureMode === 'dimensions'
               ? (item.unit === 'Sq.ft' ||
@@ -1088,7 +1194,7 @@ export async function createProjectExcelFile(
             )
             .join(', ');
           const particulars = [
-            `${item.name}${item.description ? `: ${item.description}` : ''}`,
+            `${parent ? '↳ ' : ''}${item.name}${item.description ? `: ${item.description}` : ''}`,
             dimensions
               ? `Size: ${dimensions} ${item.dimensionUnit ?? 'ft'}`
               : '',
@@ -1099,6 +1205,7 @@ export async function createProjectExcelFile(
             .join('\n');
           const amount = itemTotal(item, project.defaultTier);
           itemRows.push(rows.length);
+          if (parent) childRows.push(rows.length);
           rows.push([
             serial,
             particulars,
@@ -1137,7 +1244,9 @@ export async function createProjectExcelFile(
       columnHeaderRows,
       floorRows,
       spaceRows,
+      groupRows,
       itemRows,
+      childRows,
       spaceSubtotalRows,
       floorSubtotalRows,
       totalRow,
