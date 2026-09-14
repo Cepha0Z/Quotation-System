@@ -11,7 +11,7 @@ import {
 import type { Project, QuoteItem } from '../domain/types';
 import { financialTemplates } from '../domain/financialInitialization';
 import { rateCard } from '../domain/sample';
-import { itemBaseRate } from '../domain/pricing';
+import { itemBaseRate, itemTotal } from '../domain/pricing';
 
 const item: QuoteItem = {
   id: 'item-1',
@@ -97,52 +97,141 @@ assert.equal(adminView.rooms[0].items[0].rateOverride, 175);
 assert.equal(adminView.projectDiscount, 100);
 assert.equal(adminView.fees[0].value, 1000);
 
-const bundledWardrobe = rateCard.find((rate) => rate.id === 'template-wardrobe')!;
-const recoveredRates = financialTemplates({}, {
-  [bundledWardrobe.id]: {
-    rates: { ...bundledWardrobe.rates, standard: 99 },
-    subUnits: [],
+const bundledWardrobe = rateCard.find(
+  (rate) => rate.id === 'template-wardrobe',
+)!;
+const recoveredRates = financialTemplates(
+  {},
+  {
+    [bundledWardrobe.id]: {
+      rates: { ...bundledWardrobe.rates, standard: 99 },
+      subUnits: [],
+    },
   },
-});
-const recoveredWardrobe = recoveredRates.find((rate) => rate.id === bundledWardrobe.id)!;
+);
+const recoveredWardrobe = recoveredRates.find(
+  (rate) => rate.id === bundledWardrobe.id,
+)!;
 assert.equal(recoveredWardrobe.rates.standard, 99);
-const editedRates = recoveredRates.map((rate) => rate.id === bundledWardrobe.id
-  ? { ...rate, rates: { ...rate.rates, standard: 1000 } }
-  : rate);
+const editedRates = recoveredRates.map((rate) =>
+  rate.id === bundledWardrobe.id
+    ? { ...rate, rates: { ...rate.rates, standard: 1000 } }
+    : rate,
+);
 const rateUpdates = rateCardUpdates(recoveredRates, editedRates);
-assert.equal(rateUpdates[`rateCardTechnical/${bundledWardrobe.id}`].id, bundledWardrobe.id);
-assert.equal(rateUpdates[`rateCardFinancial/${bundledWardrobe.id}`].rates.standard, 1000);
+assert.equal(
+  rateUpdates[`rateCardTechnical/${bundledWardrobe.id}`].id,
+  bundledWardrobe.id,
+);
+assert.equal(
+  rateUpdates[`rateCardFinancial/${bundledWardrobe.id}`].rates.standard,
+  1000,
+);
 assert.equal(Object.keys(rateUpdates).length, 2);
 
-const linkedTechnical = projectTechnical({
-  ...project,
-  rooms: [{
-    ...project.rooms[0],
-    items: [{ ...item, rateCardId: bundledWardrobe.id, rateSource: 'template', rateOverride: undefined }],
-  }],
-}, 'admin-uid');
+const linkedTechnical = projectTechnical(
+  {
+    ...project,
+    rooms: [
+      {
+        ...project.rooms[0],
+        items: [
+          {
+            ...item,
+            rateCardId: bundledWardrobe.id,
+            rateSource: 'template',
+            rateOverride: undefined,
+          },
+        ],
+      },
+    ],
+  },
+  'admin-uid',
+);
 const linkedFinancial = projectFinancial({
   ...project,
-  rooms: [{
-    ...project.rooms[0],
-    items: [{ ...item, rateCardId: bundledWardrobe.id, rateSource: 'template', rateOverride: undefined }],
-  }],
+  rooms: [
+    {
+      ...project.rooms[0],
+      items: [
+        {
+          ...item,
+          rateCardId: bundledWardrobe.id,
+          rateSource: 'template',
+          rateOverride: undefined,
+        },
+      ],
+    },
+  ],
 });
-const master1000 = combineProject(linkedTechnical, linkedFinancial, editedRates);
+const master1000 = combineProject(
+  linkedTechnical,
+  linkedFinancial,
+  editedRates,
+);
 assert.equal(itemBaseRate(master1000.rooms[0].items[0], 'standard'), 1000);
-const at900 = editedRates.map((rate) => rate.id === bundledWardrobe.id
-  ? { ...rate, rates: { ...rate.rates, standard: 900 } }
-  : rate);
+const at900 = editedRates.map((rate) =>
+  rate.id === bundledWardrobe.id
+    ? { ...rate, rates: { ...rate.rates, standard: 900 } }
+    : rate,
+);
 const master900 = combineProject(linkedTechnical, linkedFinancial, at900);
 assert.equal(itemBaseRate(master900.rooms[0].items[0], 'standard'), 900);
 const overriddenFinancial = structuredClone(linkedFinancial);
 overriddenFinancial.rooms['room-1'].items['item-1'].rateOverride = 1350;
-const at800 = at900.map((rate) => rate.id === bundledWardrobe.id
-  ? { ...rate, rates: { ...rate.rates, standard: 800 } }
-  : rate);
-assert.equal(itemBaseRate(combineProject(linkedTechnical, overriddenFinancial, at800).rooms[0].items[0], 'standard'), 1350);
+const at800 = at900.map((rate) =>
+  rate.id === bundledWardrobe.id
+    ? { ...rate, rates: { ...rate.rates, standard: 800 } }
+    : rate,
+);
+assert.equal(
+  itemBaseRate(
+    combineProject(linkedTechnical, overriddenFinancial, at800).rooms[0]
+      .items[0],
+    'standard',
+  ),
+  1350,
+);
 delete overriddenFinancial.rooms['room-1'].items['item-1'].rateOverride;
-assert.equal(itemBaseRate(combineProject(linkedTechnical, overriddenFinancial, at800).rooms[0].items[0], 'standard'), 800);
+assert.equal(
+  itemBaseRate(
+    combineProject(linkedTechnical, overriddenFinancial, at800).rooms[0]
+      .items[0],
+    'standard',
+  ),
+  800,
+);
+
+const directAreaItem: QuoteItem = {
+  ...item,
+  rateCardId: undefined,
+  measureMode: 'quantity',
+  quantity: 14.47,
+  rateOverride: 204,
+  discount: 0,
+  pricingMode: 'unit',
+  subUnits: [],
+};
+assert.equal(itemTotal(directAreaItem, 'standard'), 14.47 * 204);
+assert.equal(
+  itemTotal({ ...directAreaItem, pricingMode: 'lump-sum' }, 'standard'),
+  204,
+);
+assert.equal(
+  itemTotal(
+    { ...directAreaItem, pricingMode: 'lump-sum', discount: 4 },
+    'standard',
+  ),
+  200,
+);
+assert.equal(
+  itemTotal(
+    { ...directAreaItem, pricingMode: 'lump-sum', rateOverride: 0 },
+    'standard',
+  ),
+  0,
+  'An intentional zero override must remain a priced zero, not fall back to master.',
+);
 
 const base = {
   rooms: { one: { name: 'Living', notes: '' }, two: { name: 'Kitchen' } },
@@ -172,7 +261,10 @@ const floorRules = projectRules.floors.$floorId;
 const roomRules = projectRules.rooms.$roomId;
 const itemRules = roomRules.items.$itemId;
 const revisionRules = projectRules.revisionHistory.$revisionId;
-assert.match(revisionRules['.write'], /data\.child\('createdBy'\)\.val\(\) === auth\.uid/);
+assert.match(
+  revisionRules['.write'],
+  /data\.child\('createdBy'\)\.val\(\) === auth\.uid/,
+);
 assert.match(revisionRules['.write'], /!newData\.exists\(\)/);
 assert.match(rules.rules.revisions['.read'], /role.*admin/);
 assert.match(rules.rules.revisions['.write'], /role.*admin/);

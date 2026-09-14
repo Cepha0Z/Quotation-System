@@ -53,6 +53,7 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { firmSettings as ds, rateCard as dr } from '@/domain/sample';
 import { createDefaultFees } from '@/domain/projectDefaults';
+import { resolveTemplate } from '@/domain/financialInitialization';
 import {
   createProjectExcelFile,
   excelBytesToBase64,
@@ -98,6 +99,7 @@ import {
   migrateLocalWorkspace,
   observeAuth,
   saveProjects,
+  saveProjectItemPricing,
   saveRates,
   saveRevisions,
   saveTechnicalRevisions,
@@ -172,6 +174,12 @@ type Store = {
   setSettings: (v: FirmSettings) => void;
   revisions: Revision[];
   setRevisions: (v: Revision[]) => Promise<void>;
+  setItemPricing: (
+    projectId: string,
+    roomId: string,
+    itemId: string,
+    pricing: Pick<QuoteItem, 'pricingMode' | 'rateOverride' | 'rateSource'>,
+  ) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -222,7 +230,10 @@ function useStore(): Store {
     try {
       await write();
       finish();
-      if (!Object.keys(pendingWrites.current).length && !Object.keys(activeWrites.current).length)
+      if (
+        !Object.keys(pendingWrites.current).length &&
+        !Object.keys(activeWrites.current).length
+      )
         setSaveState('saved');
     } catch (cause) {
       finish();
@@ -335,7 +346,11 @@ function useStore(): Store {
         if (!rateWritePending) sr(mergedRates);
         ss(settingsRef.current);
         sv(visibleRevisions);
-        if (!Object.keys(pendingWrites.current).length && !Object.keys(activeWrites.current).length && !revisionMutation) {
+        if (
+          !Object.keys(pendingWrites.current).length &&
+          !Object.keys(activeWrites.current).length &&
+          !revisionMutation
+        ) {
           setSaveState('saved');
           setStorageError(null);
         }
@@ -432,8 +447,7 @@ function useStore(): Store {
       const next = structuredClone(v);
       rateRef.current = next;
       sr(next);
-      if (ready)
-        queueWrite('rates', () => saveRates(previous, next));
+      if (ready) queueWrite('rates', () => saveRates(previous, next));
     },
     settings,
     setSettings: (v) => {
@@ -456,16 +470,23 @@ function useStore(): Store {
       const previousIds = new Set(previous.map((revision) => revision.id));
       const nextIds = new Set(next.map((revision) => revision.id));
       pendingRevisionMutation.current = {
-        added: new Set(next.filter((revision) => !previousIds.has(revision.id)).map((revision) => revision.id)),
-        deleted: new Set(previous.filter((revision) => !nextIds.has(revision.id)).map((revision) => revision.id)),
+        added: new Set(
+          next
+            .filter((revision) => !previousIds.has(revision.id))
+            .map((revision) => revision.id),
+        ),
+        deleted: new Set(
+          previous
+            .filter((revision) => !nextIds.has(revision.id))
+            .map((revision) => revision.id),
+        ),
       };
       setSaveState('saving');
       setStorageError(null);
       try {
         if (currentUser.role === 'admin')
           await saveRevisions(currentUser, previous, next);
-        else
-          await saveTechnicalRevisions(currentUser, previous, next);
+        else await saveTechnicalRevisions(currentUser, previous, next);
         pendingRevisionMutation.current = null;
         revisionRef.current = snapshotRef.current.revisions;
         sv(snapshotRef.current.revisions);
@@ -475,6 +496,36 @@ function useStore(): Store {
         setSaveState('error');
         setStorageError(
           `Firebase could not save these changes. ${cause instanceof Error ? cause.message : 'Check your connection or account permissions.'}`,
+        );
+        throw cause;
+      }
+    },
+    setItemPricing: async (projectId, roomId, itemId, pricing) => {
+      if (!currentUser || currentUser.role !== 'admin')
+        throw new Error('Administrator access required.');
+      activeWrites.current.projectRates =
+        (activeWrites.current.projectRates ?? 0) + 1;
+      setSaveState('saving');
+      setStorageError(null);
+      try {
+        await saveProjectItemPricing(
+          currentUser,
+          projectId,
+          roomId,
+          itemId,
+          pricing,
+        );
+        activeWrites.current.projectRates -= 1;
+        if (!activeWrites.current.projectRates)
+          delete activeWrites.current.projectRates;
+        if (!Object.keys(activeWrites.current).length) setSaveState('saved');
+      } catch (cause) {
+        activeWrites.current.projectRates -= 1;
+        if (!activeWrites.current.projectRates)
+          delete activeWrites.current.projectRates;
+        setSaveState('error');
+        setStorageError(
+          `Firebase could not save this rate. ${cause instanceof Error ? cause.message : 'Check your connection or account permissions.'}`,
         );
         throw cause;
       }
@@ -602,6 +653,16 @@ function Shell({ s }: { s: Store }) {
           <Route path="/projects" element={<Projects s={s} />} />
           <Route path="/projects/:id" element={<Builder s={s} />} />
           <Route
+            path="/projects/:id/rates"
+            element={
+              s.canManageFinancials ? (
+                <ProjectRates s={s} />
+              ) : (
+                <Navigate to="/projects" />
+              )
+            }
+          />
+          <Route
             path="/projects/:id/preview"
             element={
               s.canManageFinancials ? (
@@ -611,10 +672,7 @@ function Shell({ s }: { s: Store }) {
               )
             }
           />
-          <Route
-            path="/projects/:id/revisions"
-            element={<Revisions s={s} />}
-          />
+          <Route path="/projects/:id/revisions" element={<Revisions s={s} />} />
           <Route
             path="/rate-card"
             element={
@@ -1653,54 +1711,115 @@ async function exportQuotationPdf(project: Project) {
   const data = pdf.output('datauristring').split(',')[1];
   await shareNativeFile(filename, data, 'application/pdf');
 }
-function ProjectAssignments({ user, projectId, close }: {
-  user: WorkspaceUser; projectId: string; close: () => void;
+function ProjectAssignments({
+  user,
+  projectId,
+  close,
+}: {
+  user: WorkspaceUser;
+  projectId: string;
+  close: () => void;
 }) {
-  const [employees, setEmployees] = useState<Awaited<ReturnType<typeof loadProjectAssignments>> | null>(null);
+  const [employees, setEmployees] = useState<Awaited<
+    ReturnType<typeof loadProjectAssignments>
+  > | null>(null);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   useEffect(() => {
     let active = true;
-    void loadProjectAssignments(user, projectId).then((rows) => {
-      if (!active) return;
-      setEmployees(rows);
-      setSelected(Object.fromEntries(rows.map((row) => [row.uid, row.assigned])));
-    }).catch(() => {
-      if (active) setError('Could not load employees. Check your connection and published database rules.');
-    });
-    return () => { active = false; };
+    void loadProjectAssignments(user, projectId)
+      .then((rows) => {
+        if (!active) return;
+        setEmployees(rows);
+        setSelected(
+          Object.fromEntries(rows.map((row) => [row.uid, row.assigned])),
+        );
+      })
+      .catch(() => {
+        if (active)
+          setError(
+            'Could not load employees. Check your connection and published database rules.',
+          );
+      });
+    return () => {
+      active = false;
+    };
   }, [user.uid, projectId]);
-  return <Modal title="Assign employees" close={() => { if (!saving) close(); }}
-    subtitle="Assigned employees can edit technical details only. Financial data remains restricted.">
-    {error && <p role="alert">{error}</p>}
-    {!employees && !error && <p role="status">Loading employees…</p>}
-    {employees?.length === 0 && <p>Employees appear here after signing in to the app once.</p>}
-    <div className="form-grid single-column">
-      {employees?.map((employee) => <label key={employee.uid} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <input type="checkbox" style={{ width: 20, height: 20 }} disabled={saving}
-          checked={selected[employee.uid] ?? false}
-          onChange={(event) => setSelected((current) => ({ ...current, [employee.uid]: event.target.checked }))} />
-        <span>{employee.displayName} — {employee.email}</span>
-      </label>)}
-    </div>
-    <div className="actions">
-      <Button variant="outline" disabled={saving} onClick={close}>Cancel</Button>
-      <Button disabled={!employees || saving} onClick={async () => {
-        setSaving(true);
-        setError('');
-        try {
-          for (const employee of employees ?? []) {
-            if (employee.needsRepair || selected[employee.uid] !== employee.assigned)
-              await setProjectAssignment(user, projectId, employee.uid, selected[employee.uid]);
-          }
-          close();
-        } catch {
-          setError('Could not save assignments. Please retry; financial access has not changed.');
-        } finally { setSaving(false); }
-      }}>{saving ? 'Saving…' : 'Save assignments'}</Button>
-    </div>
-  </Modal>;
+  return (
+    <Modal
+      title="Assign employees"
+      close={() => {
+        if (!saving) close();
+      }}
+      subtitle="Assigned employees can edit technical details only. Financial data remains restricted."
+    >
+      {error && <p role="alert">{error}</p>}
+      {!employees && !error && <p role="status">Loading employees…</p>}
+      {employees?.length === 0 && (
+        <p>Employees appear here after signing in to the app once.</p>
+      )}
+      <div className="form-grid single-column">
+        {employees?.map((employee) => (
+          <label
+            key={employee.uid}
+            style={{ display: 'flex', alignItems: 'center', gap: 12 }}
+          >
+            <input
+              type="checkbox"
+              style={{ width: 20, height: 20 }}
+              disabled={saving}
+              checked={selected[employee.uid] ?? false}
+              onChange={(event) =>
+                setSelected((current) => ({
+                  ...current,
+                  [employee.uid]: event.target.checked,
+                }))
+              }
+            />
+            <span>
+              {employee.displayName} — {employee.email}
+            </span>
+          </label>
+        ))}
+      </div>
+      <div className="actions">
+        <Button variant="outline" disabled={saving} onClick={close}>
+          Cancel
+        </Button>
+        <Button
+          disabled={!employees || saving}
+          onClick={async () => {
+            setSaving(true);
+            setError('');
+            try {
+              for (const employee of employees ?? []) {
+                if (
+                  employee.needsRepair ||
+                  selected[employee.uid] !== employee.assigned
+                )
+                  await setProjectAssignment(
+                    user,
+                    projectId,
+                    employee.uid,
+                    selected[employee.uid],
+                  );
+              }
+              close();
+            } catch {
+              setError(
+                'Could not save assignments. Please retry; financial access has not changed.',
+              );
+            } finally {
+              setSaving(false);
+            }
+          }}
+        >
+          {saving ? 'Saving…' : 'Save assignments'}
+        </Button>
+      </div>
+    </Modal>
+  );
 }
 
 function Builder({ s }: { s: Store }) {
@@ -1828,15 +1947,18 @@ function Builder({ s }: { s: Store }) {
             <span>Builder</span>
             {s.canManageFinancials && (
               <>
-                <button onClick={() => setCompare(true)}>Compare</button>
-                <button onClick={() => go(`/projects/${id}/revisions`)}>
-                  Revisions
+                <button onClick={() => go(`/projects/${id}/rates`)}>
+                  Rates
                 </button>
+                <button onClick={() => setCompare(true)}>Compare</button>
                 <button onClick={() => go(`/projects/${id}/preview`)}>
                   Preview
                 </button>
               </>
             )}
+            <button onClick={() => go(`/projects/${id}/revisions`)}>
+              Revisions
+            </button>
           </nav>
           {s.canManageFinancials && (
             <Button
@@ -1862,10 +1984,20 @@ function Builder({ s }: { s: Store }) {
               <div className="context-menu project-menu">
                 {s.canManageFinancials && (
                   <>
-                    <button onClick={() => {
-                      setProjectActions(false);
-                      setAssignmentModal(true);
-                    }}>
+                    <button
+                      onClick={() => {
+                        setProjectActions(false);
+                        go(`/projects/${id}/rates`);
+                      }}
+                    >
+                      <CircleDollarSign /> Project rates
+                    </button>
+                    <button
+                      onClick={() => {
+                        setProjectActions(false);
+                        setAssignmentModal(true);
+                      }}
+                    >
                       <BriefcaseBusiness /> Assign employees
                     </button>
                     <button
@@ -2756,10 +2888,7 @@ function Builder({ s }: { s: Store }) {
         <Compare p={p} close={() => setCompare(false)} />
       )}
       {renameModal && (
-        <Modal
-          title="Edit project details"
-          close={() => setRenameModal(false)}
-        >
+        <Modal title="Edit project details" close={() => setRenameModal(false)}>
           <form
             onSubmit={(event) => {
               event.preventDefault();
@@ -2834,7 +2963,11 @@ function Builder({ s }: { s: Store }) {
         </Modal>
       )}
       {s.canManageFinancials && assignmentModal && s.user && (
-        <ProjectAssignments user={s.user} projectId={p.id} close={() => setAssignmentModal(false)} />
+        <ProjectAssignments
+          user={s.user}
+          projectId={p.id}
+          close={() => setAssignmentModal(false)}
+        />
       )}
       {revisionModal && (
         <Modal
@@ -3504,30 +3637,39 @@ function Item({
                     }
                   >
                     <option value="unit">Quantity × rate</option>
-                    <option value="lump-sum">Fixed amount per unit</option>
+                    <option value="lump-sum">Flat total</option>
                   </select>
                 </label>
                 <label>
                   {item.pricingMode === 'lump-sum'
-                    ? item.unit === 'Lump Sum'
-                      ? 'Lump-sum price'
-                      : `Fixed price per ${item.customUnit || item.unit || item.measurementType}`
+                    ? 'Flat amount'
                     : `Rate per ${item.customUnit || item.unit || item.measurementType}`}
                   <Num
                     value={rate}
                     onChange={(v) => patch({ rateOverride: v })}
                   />
                   {item.rateCardId && (
-                    <Button type="button" variant="ghost" onClick={() => patch({ rateSource: 'template', rateOverride: undefined })}>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() =>
+                        patch({
+                          rateSource: 'template',
+                          rateOverride: undefined,
+                        })
+                      }
+                    >
                       Use master rate
                     </Button>
                   )}
                 </label>
                 <div className="price-formula">
                   <span>
-                    {itemMeasure(item).toLocaleString('en-IN')}{' '}
-                    {item.customUnit || item.unit || item.measurementType} ×{' '}
-                    {inr(rate)}
+                    {item.pricingMode === 'lump-sum'
+                      ? `Flat amount ${inr(rate)}`
+                      : `${itemMeasure(item).toLocaleString('en-IN')} ${
+                          item.customUnit || item.unit || item.measurementType
+                        } × ${inr(rate)}`}
                     {item.discount > 0 ? ` − ${inr(item.discount)}` : ''}
                   </span>
                   <strong>{inr(total)}</strong>
@@ -3844,6 +3986,429 @@ function Preview({ s }: { s: Store }) {
     </div>
   );
 }
+
+type ProjectRateRow = {
+  key: string;
+  room: Room;
+  floorName: string;
+  item: QuoteItem;
+  hasTemplate: boolean;
+};
+
+function ProjectRates({ s }: { s: Store }) {
+  const { id } = useParams(),
+    go = useNavigate(),
+    project = s.projects.find((entry) => entry.id === id),
+    [search, setSearch] = useState(''),
+    [workType, setWorkType] = useState('All'),
+    [floor, setFloor] = useState('All'),
+    [space, setSpace] = useState('All'),
+    [drafts, setDrafts] = useState<Record<string, string>>({}),
+    [modeDrafts, setModeDrafts] = useState<
+      Record<string, QuoteItem['pricingMode']>
+    >({}),
+    [pending, setPending] = useState<Set<string>>(new Set()),
+    [failed, setFailed] = useState<Set<string>>(new Set()),
+    timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({}),
+    pendingKeys = useRef(new Set<string>()),
+    rateInputs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  useEffect(
+    () => () =>
+      Object.values(timers.current).forEach((timer) => clearTimeout(timer)),
+    [],
+  );
+
+  if (!project) return <Navigate to="/projects" />;
+  const floorNames = new Map(
+    (project.floors ?? []).map((entry) => [entry.id, entry.name]),
+  );
+  const rows: ProjectRateRow[] = project.rooms.flatMap((room) =>
+    room.items.map((item) => ({
+      key: `${room.id}:${item.id}`,
+      room,
+      floorName: floorNames.get(room.floorId ?? '') ?? 'Unassigned',
+      item,
+      hasTemplate: Boolean(resolveTemplate(item, s.rates)),
+    })),
+  );
+  const workTypes = [
+    ...new Set(rows.map((row) => row.item.workType ?? 'Other')),
+  ].sort();
+  const floors = [...new Set(rows.map((row) => row.floorName))].sort();
+  const spaces = [
+    ...new Set(
+      rows
+        .filter((row) => floor === 'All' || row.floorName === floor)
+        .map((row) => row.room.name),
+    ),
+  ].sort();
+  const query = search.trim().toLowerCase();
+  const visibleRows = rows.filter(
+    (row) =>
+      (workType === 'All' || (row.item.workType ?? 'Other') === workType) &&
+      (floor === 'All' || row.floorName === floor) &&
+      (space === 'All' || row.room.name === space) &&
+      (!query ||
+        [
+          row.item.name,
+          row.item.description,
+          row.item.notes,
+          row.item.hsnCode,
+          row.item.workType,
+          row.room.name,
+          row.floorName,
+        ].some((value) => value?.toLowerCase().includes(query))),
+  );
+
+  const draftRate = (row: ProjectRateRow) => {
+    if (Object.prototype.hasOwnProperty.call(drafts, row.key))
+      return drafts[row.key];
+    if (
+      !row.hasTemplate &&
+      row.item.rateOverride === undefined &&
+      itemBaseRate(row.item, project.defaultTier) === 0
+    )
+      return '';
+    return String(itemBaseRate(row.item, project.defaultTier));
+  };
+  const pricingMode = (row: ProjectRateRow) =>
+    modeDrafts[row.key] ?? row.item.pricingMode ?? 'unit';
+  const parsedRate = (value: string) => {
+    if (!value.trim()) return undefined;
+    const rate = Number(value);
+    return Number.isFinite(rate) ? Math.max(0, rate) : undefined;
+  };
+  const saveRow = async (
+    row: ProjectRateRow,
+    value: string,
+    modeOverride?: QuoteItem['pricingMode'],
+  ) => {
+    if (pendingKeys.current.has(row.key)) return false;
+    clearTimeout(timers.current[row.key]);
+    delete timers.current[row.key];
+    const rateOverride = parsedRate(value);
+    pendingKeys.current.add(row.key);
+    setFailed((current) => {
+      const next = new Set(current);
+      next.delete(row.key);
+      return next;
+    });
+    setPending((current) => new Set(current).add(row.key));
+    try {
+      await s.setItemPricing(project.id, row.room.id, row.item.id, {
+        pricingMode: modeOverride ?? pricingMode(row),
+        rateOverride,
+        rateSource:
+          rateOverride === undefined && row.hasTemplate
+            ? 'template'
+            : 'project',
+      });
+      setDrafts((current) => {
+        const next = { ...current };
+        delete next[row.key];
+        return next;
+      });
+      setModeDrafts((current) => {
+        const next = { ...current };
+        delete next[row.key];
+        return next;
+      });
+      return true;
+    } catch {
+      setFailed((current) => new Set(current).add(row.key));
+      return false;
+    } finally {
+      pendingKeys.current.delete(row.key);
+      setPending((current) => {
+        const next = new Set(current);
+        next.delete(row.key);
+        return next;
+      });
+    }
+  };
+  const scheduleSave = (row: ProjectRateRow, value: string) => {
+    clearTimeout(timers.current[row.key]);
+    timers.current[row.key] = setTimeout(() => {
+      void saveRow(row, value);
+    }, 600);
+  };
+
+  return (
+    <Page
+      title="Rates"
+      sub={project.propertyName}
+      back={{ label: 'Back to builder', onClick: () => go(`/projects/${id}`) }}
+    >
+      <nav
+        className="project-links rates-project-links"
+        aria-label="Project workspace"
+      >
+        <button onClick={() => go(`/projects/${id}`)}>Builder</button>
+        <span>Rates</span>
+        <button onClick={() => go(`/projects/${id}/revisions`)}>
+          Revisions
+        </button>
+      </nav>
+      <section className="rates-toolbar" aria-label="Rate filters">
+        <label className="rates-search">
+          <span>Search items</span>
+          <Input
+            type="search"
+            value={search}
+            placeholder="Search item, description, HSN…"
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </label>
+        <label>
+          <span>Work type</span>
+          <select
+            value={workType}
+            onChange={(event) => setWorkType(event.target.value)}
+          >
+            <option>All</option>
+            {workTypes.map((entry) => (
+              <option key={entry}>{entry}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Floor</span>
+          <select
+            value={floor}
+            onChange={(event) => {
+              setFloor(event.target.value);
+              setSpace('All');
+            }}
+          >
+            <option>All</option>
+            {floors.map((entry) => (
+              <option key={entry}>{entry}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Space</span>
+          <select
+            value={space}
+            onChange={(event) => setSpace(event.target.value)}
+          >
+            <option>All</option>
+            {spaces.map((entry) => (
+              <option key={entry}>{entry}</option>
+            ))}
+          </select>
+        </label>
+      </section>
+      <section className="project-rates panel">
+        <div className="rates-table-wrap">
+          <table className="rates-table">
+            <thead>
+              <tr>
+                <th>Work Type</th>
+                <th>Floor</th>
+                <th>Space</th>
+                <th>Item</th>
+                <th>Qty</th>
+                <th>Unit</th>
+                <th>Pricing</th>
+                <th>Rate</th>
+                <th>Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleRows.map((row, index) => {
+                const rawRate = draftRate(row);
+                const rate = parsedRate(rawRate);
+                const mode = pricingMode(row);
+                const hasDraft = Object.prototype.hasOwnProperty.call(
+                  drafts,
+                  row.key,
+                );
+                const unpriced = rate === undefined && !row.hasTemplate;
+                const previewItem = {
+                  ...row.item,
+                  pricingMode: mode,
+                  rateOverride:
+                    rate === undefined && row.hasTemplate ? undefined : rate,
+                };
+                const source = hasDraft
+                  ? rate === undefined
+                    ? row.hasTemplate
+                      ? 'Master'
+                      : 'Unset'
+                    : 'Override'
+                  : row.item.rateOverride !== undefined
+                    ? 'Override'
+                    : row.hasTemplate
+                      ? 'Master'
+                      : itemBaseRate(row.item, project.defaultTier) > 0
+                        ? 'Override'
+                        : 'Unset';
+                const unit =
+                  row.item.customUnit ||
+                  row.item.unit ||
+                  unitForMeasurement(row.item.measurementType);
+                return (
+                  <tr
+                    key={row.key}
+                    className={!row.item.enabled ? 'rate-row-disabled' : ''}
+                  >
+                    <td>{row.item.workType ?? 'Other'}</td>
+                    <td>{row.floorName}</td>
+                    <td>{row.room.name}</td>
+                    <td className="rate-item-cell">
+                      <strong>{row.item.name}</strong>
+                      {row.item.description && (
+                        <small>{row.item.description}</small>
+                      )}
+                    </td>
+                    <td className="number-cell">
+                      {itemMeasure(row.item).toLocaleString('en-IN', {
+                        maximumFractionDigits: 3,
+                      })}
+                    </td>
+                    <td>{unit}</td>
+                    <td>
+                      <div
+                        className="pricing-toggle"
+                        aria-label={`Pricing for ${row.item.name}`}
+                      >
+                        {(['unit', 'lump-sum'] as const).map((entry) => (
+                          <button
+                            type="button"
+                            key={entry}
+                            className={mode === entry ? 'active' : ''}
+                            disabled={pending.has(row.key)}
+                            onClick={async () => {
+                              if (mode === entry) return;
+                              const previousMode = mode;
+                              setModeDrafts((current) => ({
+                                ...current,
+                                [row.key]: entry,
+                              }));
+                              const valueToSave =
+                                !hasDraft &&
+                                row.hasTemplate &&
+                                row.item.rateOverride === undefined
+                                  ? ''
+                                  : rawRate;
+                              const saved = await saveRow(
+                                row,
+                                valueToSave,
+                                entry,
+                              );
+                              if (!saved)
+                                setModeDrafts((current) => ({
+                                  ...current,
+                                  [row.key]: previousMode,
+                                }));
+                            }}
+                          >
+                            {entry === 'unit' ? 'Area' : 'Flat'}
+                          </button>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="rate-input-cell">
+                      <div className="rate-input-wrap">
+                        <span>₹</span>
+                        <input
+                          ref={(element) => {
+                            rateInputs.current[row.key] = element;
+                          }}
+                          inputMode="decimal"
+                          value={rawRate}
+                          disabled={pending.has(row.key)}
+                          placeholder="Unpriced"
+                          aria-label={`Rate for ${row.item.name}`}
+                          onFocus={(event) => {
+                            if (event.currentTarget.value === '0')
+                              event.currentTarget.select();
+                          }}
+                          onChange={(event) => {
+                            const value = event.target.value;
+                            if (value && !/^\d*\.?\d*$/.test(value)) return;
+                            setDrafts((current) => ({
+                              ...current,
+                              [row.key]: value,
+                            }));
+                            scheduleSave(row, value);
+                          }}
+                          onBlur={() => {
+                            if (
+                              Object.prototype.hasOwnProperty.call(
+                                drafts,
+                                row.key,
+                              )
+                            )
+                              void saveRow(row, rawRate);
+                          }}
+                          onKeyDown={async (event) => {
+                            if (event.key !== 'Enter') return;
+                            event.preventDefault();
+                            const saved = await saveRow(row, rawRate);
+                            if (saved) {
+                              const next = visibleRows[index + 1];
+                              if (next) rateInputs.current[next.key]?.focus();
+                            }
+                          }}
+                        />
+                        {mode === 'unit' && <small>/ {unit}</small>}
+                      </div>
+                      <div
+                        className={`rate-source ${
+                          failed.has(row.key) ? 'failed' : source.toLowerCase()
+                        }`}
+                      >
+                        {pending.has(row.key)
+                          ? 'Saving…'
+                          : failed.has(row.key)
+                            ? 'Not saved'
+                            : unpriced
+                              ? 'Unpriced'
+                              : source}
+                        {!pending.has(row.key) &&
+                          row.hasTemplate &&
+                          row.item.rateOverride !== undefined && (
+                            <button
+                              type="button"
+                              disabled={pending.has(row.key)}
+                              onClick={() => {
+                                setDrafts((current) => ({
+                                  ...current,
+                                  [row.key]: '',
+                                }));
+                                void saveRow(row, '');
+                              }}
+                            >
+                              Use master
+                            </button>
+                          )}
+                      </div>
+                    </td>
+                    <td className="amount-cell">
+                      {unpriced
+                        ? '—'
+                        : inr(itemTotal(previewItem, project.defaultTier))}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {!visibleRows.length && (
+          <div className="rates-empty">
+            <strong>No matching BOQ items</strong>
+            <span>Change the search or filters to see more items.</span>
+          </div>
+        )}
+      </section>
+    </Page>
+  );
+}
+
 function Revisions({ s }: { s: Store }) {
   const { id } = useParams(),
     go = useNavigate(),
@@ -3853,8 +4418,7 @@ function Revisions({ s }: { s: Store }) {
     revs = s.revisions
       .filter((r) => r.projectId === id)
       .sort(
-        (a, b) =>
-          b.createdAt.localeCompare(a.createdAt) || b.number - a.number,
+        (a, b) => b.createdAt.localeCompare(a.createdAt) || b.number - a.number,
       );
   if (!p) return <Navigate to="/projects" />;
   return (
@@ -3866,6 +4430,16 @@ function Revisions({ s }: { s: Store }) {
         onClick: () => go(`/projects/${id}`),
       }}
     >
+      <nav
+        className="project-links rates-project-links"
+        aria-label="Project workspace"
+      >
+        <button onClick={() => go(`/projects/${id}`)}>Builder</button>
+        {s.canManageFinancials && (
+          <button onClick={() => go(`/projects/${id}/rates`)}>Rates</button>
+        )}
+        <span>Revisions</span>
+      </nav>
       <section className="panel revisions">
         {revs.length ? (
           revs.map((r) => (

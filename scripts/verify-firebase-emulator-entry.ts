@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { connectDatabaseEmulator, getDatabase, get, ref, set, update, runTransaction } from 'firebase/database';
-import { saveProjects, saveRates, saveRevisions, saveTechnicalRevisions, combineProject, loadProjectAssignments, setProjectAssignment, subscribeWorkspace } from '../storage/firebaseWorkspace';
+import { saveProjects, saveProjectItemPricing, saveRates, saveRevisions, saveTechnicalRevisions, combineProject, loadProjectAssignments, setProjectAssignment, subscribeWorkspace } from '../storage/firebaseWorkspace';
 import type { Project } from '../domain/types';
 import type { WorkspaceUser } from '../domain/auth';
 import { repairProjectFinancials } from '../storage/firebaseWorkspace';
@@ -329,6 +329,27 @@ async function main() {
     await assert.rejects(set(ref(empDb, `userProjects/employee/${own.id}`), true));
     console.log('PASS: financial read/write denial, technical financial injection denial, escalation denial, revocation and self-regrant denial');
     await update(ref(bossDb, 'projectsFinancial/project'), { projectDiscount: 20 });
+    await saveProjectItemPricing(admin, project.id, 'room', 'item', {
+      pricingMode: 'unit', rateOverride: 320, rateSource: 'project',
+    });
+    const rateView = async () => combineProject(
+      (await get(ref(secondAdminDb, `projectsTechnical/${project.id}`))).val(),
+      (await get(ref(secondAdminDb, `projectsFinancial/${project.id}`))).val(),
+    );
+    let pricedProject = await rateView();
+    assert.equal(itemTotal(pricedProject.rooms[0].items[0], pricedProject.defaultTier), 4 * 12 * 6 * 320 - 10);
+    await saveProjectItemPricing(admin, project.id, 'room', 'item', {
+      pricingMode: 'lump-sum', rateOverride: 85000, rateSource: 'project',
+    });
+    pricedProject = await rateView();
+    assert.equal(itemTotal(pricedProject.rooms[0].items[0], pricedProject.defaultTier), 84990);
+    await saveProjectItemPricing(admin, project.id, 'room', 'item', {
+      pricingMode: 'lump-sum', rateOverride: 0, rateSource: 'project',
+    });
+    assert.equal((await get(ref(secondAdminDb, 'projectsFinancial/project/rooms/room/items/item/rateOverride'))).val(), 0);
+    await assert.rejects(saveProjectItemPricing(employee, project.id, 'room', 'item', {
+      pricingMode: 'unit', rateOverride: 1, rateSource: 'project',
+    }));
     console.log('PASS: admin financial access retained; rules accepted by Firebase emulator');
 
     const repair = async (id: string) => {

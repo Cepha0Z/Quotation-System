@@ -19,7 +19,11 @@ import {
   type Unsubscribe,
 } from 'firebase/database';
 import { normalizeProject } from '@/domain/boq';
-import { financialTemplates, initializeMissingFinancials, resolveTemplate } from '@/domain/financialInitialization';
+import {
+  financialTemplates,
+  initializeMissingFinancials,
+  resolveTemplate,
+} from '@/domain/financialInitialization';
 import type { WorkspaceUser, UserRole } from '@/domain/auth';
 import type {
   FirmSettings,
@@ -356,9 +360,13 @@ export async function saveProjects(
   }
 }
 
-export async function loadProjectAssignments(user: WorkspaceUser, projectId: string) {
+export async function loadProjectAssignments(
+  user: WorkspaceUser,
+  projectId: string,
+) {
   const services = getFirebaseServices();
-  if (!services || user.role !== 'admin') throw new Error('Administrator access required');
+  if (!services || user.role !== 'admin')
+    throw new Error('Administrator access required');
   const [profiles, members] = await Promise.all([
     get(ref(services.database, 'users')),
     get(ref(services.database, `projectMembers/${projectId}`)),
@@ -366,19 +374,31 @@ export async function loadProjectAssignments(user: WorkspaceUser, projectId: str
   const employees = Object.entries(profiles.val() ?? {})
     .filter(([, profile]) => (profile as WorkspaceUser).role === 'employee')
     .map(([uid, profile]) => ({ ...(profile as WorkspaceUser), uid }));
-  return Promise.all(employees.map(async (employee) => {
-    const indexed = await get(ref(services.database, `userProjects/${employee.uid}/${projectId}`));
-    const indexedAccess = indexed.val() === true;
-    const memberAccess = members.child(employee.uid).val() === true;
-    return { ...employee, assigned: indexedAccess || memberAccess, needsRepair: indexedAccess !== memberAccess };
-  }));
+  return Promise.all(
+    employees.map(async (employee) => {
+      const indexed = await get(
+        ref(services.database, `userProjects/${employee.uid}/${projectId}`),
+      );
+      const indexedAccess = indexed.val() === true;
+      const memberAccess = members.child(employee.uid).val() === true;
+      return {
+        ...employee,
+        assigned: indexedAccess || memberAccess,
+        needsRepair: indexedAccess !== memberAccess,
+      };
+    }),
+  );
 }
 
 export async function setProjectAssignment(
-  user: WorkspaceUser, projectId: string, employeeId: string, assigned: boolean,
+  user: WorkspaceUser,
+  projectId: string,
+  employeeId: string,
+  assigned: boolean,
 ) {
   const services = getFirebaseServices();
-  if (!services || user.role !== 'admin') throw new Error('Administrator access required');
+  if (!services || user.role !== 'admin')
+    throw new Error('Administrator access required');
   // Both the permission map and the employee's discovery index must agree.
   // Write only this member, so another admin's unrelated assignments survive.
   await update(ref(services.database), {
@@ -400,8 +420,12 @@ export function rateCardUpdates(
     const oldRate = before.get(id);
     const newRate = fresh.get(id);
     if (JSON.stringify(oldRate) === JSON.stringify(newRate)) continue;
-    changes[`rateCardTechnical/${id}`] = newRate ? rateTechnical(newRate) : null;
-    changes[`rateCardFinancial/${id}`] = newRate ? rateFinancial(newRate) : null;
+    changes[`rateCardTechnical/${id}`] = newRate
+      ? rateTechnical(newRate)
+      : null;
+    changes[`rateCardFinancial/${id}`] = newRate
+      ? rateFinancial(newRate)
+      : null;
   }
   return changes;
 }
@@ -417,17 +441,61 @@ export async function saveRates(
     await update(ref(services.database), changes);
 }
 
+export async function saveProjectItemPricing(
+  user: WorkspaceUser,
+  projectId: string,
+  roomId: string,
+  itemId: string,
+  pricing: Pick<QuoteItem, 'pricingMode' | 'rateOverride' | 'rateSource'>,
+) {
+  const services = getFirebaseServices();
+  if (!services || user.role !== 'admin')
+    throw new Error('Administrator access required');
+  await runTransaction(
+    ref(
+      services.database,
+      `projectsFinancial/${projectId}/rooms/${roomId}/items/${itemId}`,
+    ),
+    (current) => {
+      const next = { ...current };
+      next.pricingMode = pricing.pricingMode ?? 'unit';
+      next.rateSource = pricing.rateSource ?? 'project';
+      if (pricing.rateOverride === undefined) delete next.rateOverride;
+      else next.rateOverride = pricing.rateOverride;
+      return next;
+    },
+    { applyLocally: false },
+  );
+}
+
 // The existing admin client fills missing records on load. No backend or
 // employee financial permissions are needed. Existing records always win.
-export async function repairProjectFinancials(user: WorkspaceUser, projectId: string, templates: RateCardItem[]) {
+export async function repairProjectFinancials(
+  user: WorkspaceUser,
+  projectId: string,
+  templates: RateCardItem[],
+) {
   const services = getFirebaseServices();
-  if (!services || user.role !== 'admin') throw new Error('Administrator access required');
-  const technical = await get(ref(services.database, `projectsTechnical/${projectId}`));
+  if (!services || user.role !== 'admin')
+    throw new Error('Administrator access required');
+  const technical = await get(
+    ref(services.database, `projectsTechnical/${projectId}`),
+  );
   if (!technical.exists()) return;
-  await runTransaction(ref(services.database, `projectsFinancial/${projectId}`), (current) => {
-    const next = initializeMissingFinancials(technical.val(), current, templates);
-    return JSON.stringify(current) === JSON.stringify(next) ? undefined : next;
-  }, { applyLocally: false });
+  await runTransaction(
+    ref(services.database, `projectsFinancial/${projectId}`),
+    (current) => {
+      const next = initializeMissingFinancials(
+        technical.val(),
+        current,
+        templates,
+      );
+      return JSON.stringify(current) === JSON.stringify(next)
+        ? undefined
+        : next;
+    },
+    { applyLocally: false },
+  );
 }
 
 export async function saveSettings(
@@ -627,24 +695,43 @@ export function subscribeWorkspace(
   // legacy record disable unrelated project saves for the current session.
   const legacyRevisionBackfills = new Set<string>();
   const emit = () => {
-    if (!active || !adminTechnicalReady || !adminFinancialReady || !adminRatesReady || !adminRevisionsReady) return;
+    if (
+      !active ||
+      !adminTechnicalReady ||
+      !adminFinancialReady ||
+      !adminRatesReady ||
+      !adminRevisionsReady
+    )
+      return;
     if (employeePendingProjects.size) return;
     state.projects = [...technical.entries()]
       .map(([id, value]) => {
         const current = financial.get(id);
         if (user.role !== 'admin') return combineProject(value);
-        const initialized = initializeMissingFinancials(value as Parameters<typeof initializeMissingFinancials>[0], current ?? null, state.rates);
-        if (JSON.stringify(initialized) !== JSON.stringify(current) && !repairs.has(id)) {
+        const initialized = initializeMissingFinancials(
+          value as Parameters<typeof initializeMissingFinancials>[0],
+          current ?? null,
+          state.rates,
+        );
+        if (
+          JSON.stringify(initialized) !== JSON.stringify(current) &&
+          !repairs.has(id)
+        ) {
           repairs.add(id);
-          void repairProjectFinancials(user, id, state.rates)
-            .then(() => {
+          void repairProjectFinancials(user, id, state.rates).then(
+            () => {
               repairs.delete(id);
               // A technical item may have arrived while this repair was in flight.
               emit();
-            }, () => {
+            },
+            () => {
               repairs.delete(id);
-              if (active) error('Could not initialize project pricing. Check your connection and admin permissions.');
-            });
+              if (active)
+                error(
+                  'Could not initialize project pricing. Check your connection and admin permissions.',
+                );
+            },
+          );
         }
         return combineProject(value, initialized, state.rates);
       })
@@ -670,7 +757,11 @@ export function subscribeWorkspace(
         const key = `${revision.projectId}:${revision.id}`;
         if (legacyRevisionBackfills.has(key)) continue;
         legacyRevisionBackfills.add(key);
-        void publishLegacyTechnicalRevision(services.database, user, revision).then(
+        void publishLegacyTechnicalRevision(
+          services.database,
+          user,
+          revision,
+        ).then(
           () => undefined,
           (cause) => {
             // The private legacy record remains untouched and visible to the
@@ -803,19 +894,19 @@ export function subscribeWorkspace(
     subscriptions.push(
       onValue(
         ref(services.database, 'rateCardTechnical'),
-          (snapshot) => {
-            rateTech = snapshot.val() ?? {};
-            rateTechReady = true;
-            emitRates();
+        (snapshot) => {
+          rateTech = snapshot.val() ?? {};
+          rateTechReady = true;
+          emitRates();
         },
         (cause) => error(cause.message),
       ),
       onValue(
         ref(services.database, 'rateCardFinancial'),
-          (snapshot) => {
-            rateMoney = snapshot.val() ?? {};
-            rateMoneyReady = true;
-            emitRates();
+        (snapshot) => {
+          rateMoney = snapshot.val() ?? {};
+          rateMoneyReady = true;
+          emitRates();
         },
         (cause) => error(cause.message),
       ),

@@ -61,10 +61,12 @@ export const itemOriginalTotal = (
   forcedTier?: Tier,
 ) =>
   item.enabled
-    ? itemMeasure(item) * safe(itemBaseRate(item, projectTier, forcedTier)) +
-      item.subUnits
-        .filter((s) => s.enabled)
-        .reduce((a, s) => a + safe(s.rate), 0)
+    ? item.pricingMode === 'lump-sum'
+      ? safe(itemBaseRate(item, projectTier, forcedTier))
+      : itemMeasure(item) * safe(itemBaseRate(item, projectTier, forcedTier)) +
+        item.subUnits
+          .filter((s) => s.enabled)
+          .reduce((a, s) => a + safe(s.rate), 0)
     : 0;
 export const itemTotal = (
   item: QuoteItem,
@@ -86,7 +88,7 @@ export const itemSavings = (
       0,
       itemReferenceRate(item, projectTier, forcedTier) -
         itemBaseRate(item, projectTier, forcedTier),
-    ) * itemMeasure(item);
+    ) * (item.pricingMode === 'lump-sum' ? 1 : itemMeasure(item));
   return (
     rateSaving +
     Math.min(

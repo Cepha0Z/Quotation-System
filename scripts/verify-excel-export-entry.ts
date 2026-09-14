@@ -260,10 +260,10 @@ async function main() {
   if (
     fixedAmountRow?.[3] !== 3 ||
     fixedAmountRow?.[4] !== 'Lump Sum' ||
-    fixedAmountRow?.[6] !== 56_250
+    fixedAmountRow?.[6] !== 18_750
   ) {
     throw new Error(
-      'Fixed-amount items must multiply by and export their entered quantity.',
+      'Flat-priced items must export the entered amount as their final total.',
     );
   }
   const boughtOutRows = X.utils.sheet_to_json<unknown[]>(
