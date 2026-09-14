@@ -171,7 +171,7 @@ type Store = {
   settings: FirmSettings;
   setSettings: (v: FirmSettings) => void;
   revisions: Revision[];
-  setRevisions: (v: Revision[]) => void;
+  setRevisions: (v: Revision[]) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -198,6 +198,10 @@ function useStore(): Store {
     rateRef = useRef<RateCardItem[]>([]),
     settingsRef = useRef<FirmSettings>(ds),
     revisionRef = useRef<Revision[]>([]),
+    pendingRevisionMutation = useRef<{
+      added: Set<string>;
+      deleted: Set<string>;
+    } | null>(null),
     snapshotRef = useRef<WorkspaceSnapshot>({
       projects: [],
       rates: [],
@@ -313,12 +317,25 @@ function useStore(): Store {
         projectRef.current = normalized;
         if (!rateWritePending) rateRef.current = mergedRates;
         settingsRef.current = normalizeFirmSettings(snapshot.settings);
-        revisionRef.current = snapshot.revisions;
+        const revisionMutation = pendingRevisionMutation.current;
+        const visibleRevisions = revisionMutation
+          ? [
+              ...snapshot.revisions.filter(
+                (revision) => !revisionMutation.added.has(revision.id),
+              ),
+              ...revisionRef.current.filter(
+                (revision) =>
+                  revisionMutation.deleted.has(revision.id) &&
+                  !snapshot.revisions.some((saved) => saved.id === revision.id),
+              ),
+            ]
+          : snapshot.revisions;
+        revisionRef.current = visibleRevisions;
         sp(normalized);
         if (!rateWritePending) sr(mergedRates);
         ss(settingsRef.current);
-        sv(snapshot.revisions);
-        if (!Object.keys(pendingWrites.current).length && !Object.keys(activeWrites.current).length) {
+        sv(visibleRevisions);
+        if (!Object.keys(pendingWrites.current).length && !Object.keys(activeWrites.current).length && !revisionMutation) {
           setSaveState('saved');
           setStorageError(null);
         }
@@ -429,18 +446,38 @@ function useStore(): Store {
         );
     },
     revisions,
-    setRevisions: (v) => {
-      if (!currentUser) return;
+    setRevisions: async (v) => {
+      if (!currentUser) throw new Error('Sign in to manage revisions.');
       const previous = structuredClone(revisionRef.current);
       const next = structuredClone(v);
-      revisionRef.current = next;
-      sv(next);
-      if (ready)
-        queueWrite('revisions', () =>
-          currentUser.role === 'admin'
-            ? saveRevisions(currentUser, previous, next)
-            : saveTechnicalRevisions(currentUser, previous, next),
+      if (!ready) throw new Error('Revision history is still loading.');
+      if (pendingRevisionMutation.current)
+        throw new Error('Another revision change is still saving.');
+      const previousIds = new Set(previous.map((revision) => revision.id));
+      const nextIds = new Set(next.map((revision) => revision.id));
+      pendingRevisionMutation.current = {
+        added: new Set(next.filter((revision) => !previousIds.has(revision.id)).map((revision) => revision.id)),
+        deleted: new Set(previous.filter((revision) => !nextIds.has(revision.id)).map((revision) => revision.id)),
+      };
+      setSaveState('saving');
+      setStorageError(null);
+      try {
+        if (currentUser.role === 'admin')
+          await saveRevisions(currentUser, previous, next);
+        else
+          await saveTechnicalRevisions(currentUser, previous, next);
+        pendingRevisionMutation.current = null;
+        revisionRef.current = snapshotRef.current.revisions;
+        sv(snapshotRef.current.revisions);
+        setSaveState('saved');
+      } catch (cause) {
+        pendingRevisionMutation.current = null;
+        setSaveState('error');
+        setStorageError(
+          `Firebase could not save these changes. ${cause instanceof Error ? cause.message : 'Check your connection or account permissions.'}`,
         );
+        throw cause;
+      }
     },
     signIn: emailSignIn,
     signUp: emailSignUp,
@@ -1681,6 +1718,7 @@ function Builder({ s }: { s: Store }) {
     [deleteProject, setDeleteProject] = useState(false),
     [revisionModal, setRevisionModal] = useState(false),
     [revisionNote, setRevisionNote] = useState(''),
+    [revisionSaving, setRevisionSaving] = useState(false),
     [editingItemId, setEditingItemId] = useState<string | null>(null),
     [selectedWorkType, setSelectedWorkType] = useState('All'),
     [selectedFloorId, setSelectedFloorId] = useState(p?.floors?.[0]?.id ?? ''),
@@ -1753,10 +1791,10 @@ function Builder({ s }: { s: Store }) {
     }));
     setRid(newRoom.id);
   };
-  function saveRev(note: string) {
+  async function saveRev(note: string) {
     const project = p!;
     const prior = s.revisions.filter((r) => r.projectId === project.id);
-    s.setRevisions([
+    await s.setRevisions([
       ...s.revisions,
       {
         id: uid(),
@@ -1766,7 +1804,7 @@ function Builder({ s }: { s: Store }) {
         createdBy: s.user?.uid,
         authorName: s.user?.displayName,
         total: tot.grandTotal,
-        note,
+        note: note.trim(),
         snapshot: structuredClone(project),
         technicalOnly: !s.canManageFinancials,
       },
@@ -2802,25 +2840,35 @@ function Builder({ s }: { s: Store }) {
         <Modal
           title="Save revision"
           className="save-revision-modal"
-          close={() => setRevisionModal(false)}
+          close={() => {
+            if (!revisionSaving) setRevisionModal(false);
+          }}
         >
           <form
             className="revision-form"
-            onSubmit={(event) => {
+            onSubmit={async (event) => {
               event.preventDefault();
-              saveRev(revisionNote);
+              setRevisionSaving(true);
+              try {
+                await saveRev(revisionNote);
+              } catch {
+                // Keep the modal open so the message can be retried.
+              } finally {
+                setRevisionSaving(false);
+              }
             }}
           >
             <div className="form-grid single-column">
               <label>
                 <span className="revision-field-label">
-                  Revision note <em>(optional)</em>
+                  Revision name / message <em>(optional)</em>
                 </span>
                 <Input
                   autoFocus
+                  disabled={revisionSaving}
                   value={revisionNote}
                   onChange={(event) => setRevisionNote(event.target.value)}
-                  placeholder="For example: Client requested changes"
+                  placeholder="Completed electrical pricing for first floor"
                 />
               </label>
             </div>
@@ -2828,13 +2876,14 @@ function Builder({ s }: { s: Store }) {
               <Button
                 type="button"
                 variant="outline"
+                disabled={revisionSaving}
                 onClick={() => setRevisionModal(false)}
               >
                 Cancel
               </Button>
-              <Button type="submit">
+              <Button type="submit" disabled={revisionSaving}>
                 <Save />
-                Save revision
+                {revisionSaving ? 'Saving…' : 'Save revision'}
               </Button>
             </div>
           </form>
@@ -3798,6 +3847,8 @@ function Preview({ s }: { s: Store }) {
 function Revisions({ s }: { s: Store }) {
   const { id } = useParams(),
     go = useNavigate(),
+    [revisionToDelete, setRevisionToDelete] = useState<Revision | null>(null),
+    [deleting, setDeleting] = useState(false),
     p = s.projects.find((x) => x.id === id),
     revs = s.revisions
       .filter((r) => r.projectId === id)
@@ -3821,42 +3872,53 @@ function Revisions({ s }: { s: Store }) {
             <article key={r.id}>
               <b>R{r.number}</b>
               <span>
-                <strong>Revision {r.number}</strong>
+                <strong>{r.note?.trim() || 'Revision'}</strong>
                 <small>
-                  {new Date(r.createdAt).toLocaleString('en-IN')} ·{' '}
                   {r.authorName || 'Team member'} ·{' '}
-                  {r.note || 'No note'}
+                  {new Date(r.createdAt).toLocaleString('en-IN')}
                 </small>
               </span>
               {s.canManageFinancials && !r.technicalOnly && (
                 <strong>{inr(r.total)}</strong>
               )}
-              <Button
-                variant="outline"
-                onClick={() => {
-                  const restored =
-                    s.canManageFinancials && r.technicalOnly
-                      ? combineProject(
-                          projectTechnical(r.snapshot),
-                          projectFinancial(p),
-                          s.rates,
-                        )
-                      : structuredClone(r.snapshot);
-                  s.setProjects(
-                    s.projects.map((x) =>
-                      x.id === id
-                        ? {
-                            ...restored,
-                            updatedAt: new Date().toISOString(),
-                          }
-                        : x,
-                    ),
-                  );
-                  go(`/projects/${id}`);
-                }}
-              >
-                Restore
-              </Button>
+              <div className="revision-actions">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const restored =
+                      s.canManageFinancials && r.technicalOnly
+                        ? combineProject(
+                            projectTechnical(r.snapshot),
+                            projectFinancial(p),
+                            s.rates,
+                          )
+                        : structuredClone(r.snapshot);
+                    s.setProjects(
+                      s.projects.map((x) =>
+                        x.id === id
+                          ? {
+                              ...restored,
+                              updatedAt: new Date().toISOString(),
+                            }
+                          : x,
+                      ),
+                    );
+                    go(`/projects/${id}`);
+                  }}
+                >
+                  Restore
+                </Button>
+                {(s.canManageFinancials || r.createdBy === s.user?.uid) && (
+                  <Button
+                    variant="ghost"
+                    className="revision-delete"
+                    onClick={() => setRevisionToDelete(r)}
+                  >
+                    <Trash2 />
+                    Delete
+                  </Button>
+                )}
+              </div>
             </article>
           ))
         ) : (
@@ -3867,6 +3929,58 @@ function Revisions({ s }: { s: Store }) {
           </div>
         )}
       </section>
+      {revisionToDelete && (
+        <Modal
+          title="Delete revision"
+          close={() => {
+            if (!deleting) setRevisionToDelete(null);
+          }}
+        >
+          <div className="delete-confirm">
+            <Trash2 />
+            <div>
+              <strong>
+                Delete “{revisionToDelete.note?.trim() || 'Revision'}”?
+              </strong>
+              <p>
+                This removes only this saved revision from the project history.
+                The current BOQ and project data will not be changed.
+              </p>
+            </div>
+          </div>
+          <div className="actions">
+            <Button
+              variant="outline"
+              disabled={deleting}
+              onClick={() => setRevisionToDelete(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleting}
+              onClick={async () => {
+                setDeleting(true);
+                try {
+                  await s.setRevisions(
+                    s.revisions.filter(
+                      (revision) => revision.id !== revisionToDelete.id,
+                    ),
+                  );
+                  setRevisionToDelete(null);
+                } catch {
+                  // Keep confirmation open so the deletion can be retried.
+                } finally {
+                  setDeleting(false);
+                }
+              }}
+            >
+              <Trash2 />
+              {deleting ? 'Deleting…' : 'Delete revision'}
+            </Button>
+          </div>
+        </Modal>
+      )}
     </Page>
   );
 }

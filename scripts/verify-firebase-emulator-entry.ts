@@ -219,6 +219,55 @@ async function main() {
       visibleRevisions.some((revision) => revision.id === postFailureRevision.id) &&
       employeeBRevisions.some((revision) => revision.id === postFailureRevision.id),
     );
+    const employeeDeleteRevision = {
+      ...employeeRevision,
+      id: 'employee-delete-revision', number: 7,
+      note: 'Completed electrical pricing for first floor',
+      createdBy: employee.uid, authorName: employee.displayName,
+    };
+    selectClient(1);
+    await saveTechnicalRevisions(employee, visibleRevisions, [
+      ...visibleRevisions,
+      employeeDeleteRevision,
+    ]);
+    await waitFor(() =>
+      employeeBRevisions.some((revision) => revision.id === employeeDeleteRevision.id) &&
+      adminRevisions.some((revision) => revision.id === employeeDeleteRevision.id),
+    );
+    assert.equal(
+      adminRevisions.find((revision) => revision.id === employeeDeleteRevision.id)?.note,
+      employeeDeleteRevision.note,
+    );
+    selectClient(2);
+    await assert.rejects(
+      saveTechnicalRevisions(
+        outsider,
+        employeeBRevisions,
+        employeeBRevisions.filter((revision) => revision.id !== employeeDeleteRevision.id),
+      ),
+      /only delete revisions that you created/,
+    );
+    selectClient(1);
+    await saveTechnicalRevisions(
+      employee,
+      visibleRevisions,
+      visibleRevisions.filter((revision) => revision.id !== employeeDeleteRevision.id),
+    );
+    await waitFor(() =>
+      !visibleRevisions.some((revision) => revision.id === employeeDeleteRevision.id) &&
+      !employeeBRevisions.some((revision) => revision.id === employeeDeleteRevision.id) &&
+      !adminRevisions.some((revision) => revision.id === employeeDeleteRevision.id),
+    );
+    selectClient(0);
+    await saveRevisions(
+      admin,
+      adminRevisions,
+      adminRevisions.filter((revision) => revision.id !== postFailureRevision.id),
+    );
+    await waitFor(() =>
+      !visibleRevisions.some((revision) => revision.id === postFailureRevision.id) &&
+      !employeeBRevisions.some((revision) => revision.id === postFailureRevision.id),
+    );
     await update(ref(bossDb, `projectsTechnical/${project.id}/revisionHistory/${employeeRevision.id}`), {
       createdBy: null,
       authorName: null,
@@ -229,7 +278,7 @@ async function main() {
     stopAdmin = () => {};
     selectClient(0);
     await setProjectAssignment(admin, project.id, outsider.uid, false);
-    console.log('PASS: shared project revision history converges across admin and two employees; legacy failures stay isolated; private financial snapshots remain admin-only');
+    console.log('PASS: shared history converges across admin and two employees; notes persist; scoped employee/admin deletes synchronize; legacy failures stay isolated; private financial snapshots remain admin-only');
     selectClient(1);
     const expanded = structuredClone(edited);
     expanded.floors!.push({ id: 'second-floor', name: 'Second Floor' });

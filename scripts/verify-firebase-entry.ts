@@ -171,6 +171,16 @@ const projectRules = rules.rules.projectsTechnical.$projectId;
 const floorRules = projectRules.floors.$floorId;
 const roomRules = projectRules.rooms.$roomId;
 const itemRules = roomRules.items.$itemId;
+const revisionRules = projectRules.revisionHistory.$revisionId;
+assert.match(revisionRules['.write'], /data\.child\('createdBy'\)\.val\(\) === auth\.uid/);
+assert.match(revisionRules['.write'], /!newData\.exists\(\)/);
+assert.match(rules.rules.revisions['.read'], /role.*admin/);
+assert.match(rules.rules.revisions['.write'], /role.*admin/);
+for (const key of forbidden)
+  assert.equal(
+    revisionRules.snapshot.rooms.$roomId.items.$itemId[key],
+    undefined,
+  );
 for (const guardedRules of [
   rules.rules.users.$uid,
   projectRules,

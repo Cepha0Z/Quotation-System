@@ -492,6 +492,18 @@ export async function saveTechnicalRevisions(
       { applyLocally: false },
     );
   }
+  const remaining = new Set(revisions.map((revision) => revision.id));
+  for (const revision of previous) {
+    if (remaining.has(revision.id)) continue;
+    if (revision.createdBy !== user.uid)
+      throw new Error('You can only delete revisions that you created.');
+    await remove(
+      ref(
+        services.database,
+        `projectsTechnical/${revision.projectId}/revisionHistory/${revision.id}`,
+      ),
+    );
+  }
 }
 
 async function publishLegacyTechnicalRevision(

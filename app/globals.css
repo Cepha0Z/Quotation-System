@@ -1275,6 +1275,38 @@ td small {
   place-items: center;
   background: #e8ebe6;
 }
+.revisions > article > span {
+  display: grid;
+  gap: 4px;
+}
+.revisions > article > span small {
+  color: var(--muted);
+}
+.revision-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.revision-actions .revision-delete {
+  color: #8f342d;
+}
+.revision-actions svg {
+  width: 16px;
+  height: 16px;
+}
+@media (max-width: 720px) {
+  .revisions > article {
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 12px;
+  }
+  .revisions > article > strong,
+  .revision-actions {
+    grid-column: 2;
+  }
+  .revision-actions {
+    justify-content: flex-start;
+  }
+}
 .fee-grid {
   display: grid;
   grid-template-columns: 1.3fr repeat(3, 1fr);

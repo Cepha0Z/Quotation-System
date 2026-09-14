@@ -93,7 +93,7 @@
         },
         "revisionHistory": {
           "$revisionId": {
-            ".write": "auth != null && !data.exists() && newData.child('createdBy').val() === auth.uid && newData.child('authorName').val() === root.child('users').child(auth.uid).child('displayName').val() && (root.child('userProjects').child(auth.uid).child($projectId).val() === true || root.child('projectMembers').child($projectId).child(auth.uid).val() === true)",
+            ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || ((root.child('userProjects').child(auth.uid).child($projectId).val() === true || root.child('projectMembers').child($projectId).child(auth.uid).val() === true) && ((!data.exists() && newData.child('createdBy').val() === auth.uid && newData.child('authorName').val() === root.child('users').child(auth.uid).child('displayName').val()) || (data.exists() && !newData.exists() && data.child('createdBy').val() === auth.uid))))",
             ".validate": "newData.child('id').val() === $revisionId && newData.child('projectId').val() === $projectId && newData.child('number').isNumber() && newData.child('createdAt').isString() && newData.child('note').isString() && (root.child('users').child(auth.uid).child('role').val() === 'admin' || (!data.exists() && newData.child('createdBy').val() === auth.uid && newData.child('authorName').val() === root.child('users').child(auth.uid).child('displayName').val()) || (data.exists() && newData.child('createdBy').val() === data.child('createdBy').val() && newData.child('authorName').val() === data.child('authorName').val()))",
             "id": { ".validate": true },
             "projectId": { ".validate": true },
