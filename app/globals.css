@@ -2871,6 +2871,7 @@ textarea {
 }
 
 .edit-group-modal {
+  box-sizing: border-box;
   width: min(620px, 100%);
   max-height: min(760px, calc(100dvh - 48px - var(--safe-top) - var(--safe-bottom)));
   padding: 0;
@@ -2934,6 +2935,14 @@ textarea {
   background: #fbfbf8;
   box-shadow: 0 -8px 20px rgba(20, 45, 37, 0.04);
 }
+.edit-group-actions button {
+  min-height: 40px;
+  padding-inline: 16px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: normal;
+}
 .edit-group-error {
   margin: 0;
   color: #8f342d;
@@ -2953,6 +2962,23 @@ textarea {
   font-size: 12px;
 }
 @media (max-width: 560px) {
+  .edit-group-modal {
+    width: calc(100% - 24px);
+    max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 24px);
+    margin-bottom: 12px;
+  }
+  .edit-group-modal > header,
+  .edit-group-scroll {
+    padding-inline: 18px;
+  }
+  .edit-group-actions {
+    padding-inline: 18px;
+  }
+  .edit-group-form input,
+  .edit-group-form select,
+  .edit-group-form textarea {
+    font-size: 16px;
+  }
   .group-measure-fields { grid-template-columns: 1fr; }
   .composite-description { padding-left: 18px; }
 }

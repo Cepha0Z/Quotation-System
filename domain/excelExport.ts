@@ -449,7 +449,7 @@ function styleDetailSheet(
   // retained in the serialized workbook rather than overwritten.
   markers.childRows.forEach((row) =>
     styleRow(X, ws, row, (column, cell) => ({
-      fill: fill(c.surface),
+      fill: fill(c.greenPale),
       font: font(10),
       alignment: {
         vertical: 'center',
@@ -1129,6 +1129,10 @@ export async function createProjectExcelFile(
     const spaceSubtotalRows: number[] = [];
     const floorSubtotalRows: number[] = [];
     let serial = 1;
+    const compositeSerials = new Map<
+      string,
+      { parent: number; nextChild: number }
+    >();
     let floorSection = 1;
     for (const floor of project.floors ?? []) {
       const floorSpaces = project.rooms
@@ -1173,9 +1177,15 @@ export async function createProjectExcelFile(
               0,
             );
             const description = entry.item.description.trim();
+            const parentSerial = serial;
+            serial += 1;
+            compositeSerials.set(entry.item.id, {
+              parent: parentSerial,
+              nextChild: 1,
+            });
             groupRows.push(rows.length);
             rows.push([
-              '',
+              parentSerial,
               `${entry.item.name}${description ? `: ${description}` : ''}`,
               entry.item.hsnCode ?? '',
               itemMeasure(entry.item),
@@ -1220,8 +1230,14 @@ export async function createProjectExcelFile(
             .filter(Boolean)
             .join('\n');
           const amount = itemTotal(item, project.defaultTier);
+          let rowSerial: number | string = serial;
           itemRows.push(rows.length);
           if (parent) {
+            const groupSerial = compositeSerials.get(parent.id);
+            if (!groupSerial)
+              throw new Error(`Composite serial missing for ${parent.name}.`);
+            rowSerial = `${groupSerial.parent}.${groupSerial.nextChild}`;
+            groupSerial.nextChild += 1;
             childRows.push(rows.length);
             const next = entries[entryIndex + 1];
             if (
@@ -1230,9 +1246,9 @@ export async function createProjectExcelFile(
               next.parent?.id !== parent.id
             )
               lastChildRows.push(rows.length);
-          }
+          } else serial += 1;
           rows.push([
-            serial,
+            rowSerial,
             particulars,
             item.hsnCode ?? '',
             itemMeasure(item),
@@ -1242,7 +1258,6 @@ export async function createProjectExcelFile(
             itemBaseRate(item, project.defaultTier),
             amount,
           ]);
-          serial += 1;
           spaceTotal += amount;
         }
         spaceSubtotalRows.push(rows.length);

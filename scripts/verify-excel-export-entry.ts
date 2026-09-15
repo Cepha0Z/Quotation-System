@@ -475,6 +475,12 @@ async function main() {
     measureMode: 'quantity',
     rates: { standard: 1_100, premium: 1_100, luxury: 1_100 },
   });
+  const anotherSimple = makeItem(
+    'another-simple',
+    'Another Simple Item',
+    'Civil Work',
+    { rates: { standard: 0, premium: 0, luxury: 0 } },
+  );
   const storageGroup = makeItem('storage-group', 'Living Storage', 'Civil Work', {
     itemType: 'composite',
     childrenOrder: ['shelves', 'base-unit'],
@@ -501,7 +507,7 @@ async function main() {
         id: 'living',
         name: 'Living Room',
         floorId: 'ground',
-        items: [group, tvUnit, wardrobe, bedBack],
+        items: [bedBack, group, tvUnit, wardrobe, anotherSimple],
       },
       {
         id: 'study',
@@ -536,6 +542,8 @@ async function main() {
     compositeRows[groupRow][6] !== 44_448
   )
     throw new Error('Composite parent row or display-only total is incorrect.');
+  if (compositeRows[groupRow][0] !== 2)
+    throw new Error('Composite parent did not consume a top-level serial number.');
   const exportedNames = compositeRows
     .slice(groupRow + 1, groupRow + 3)
     .map((row) => String(row[1]).split(':')[0]);
@@ -547,6 +555,16 @@ async function main() {
     ])
   )
     throw new Error('Composite children did not follow childrenOrder.');
+  const exportedChildSerials = compositeRows
+    .slice(groupRow + 1, groupRow + 3)
+    .map((row) => row[0]);
+  if (JSON.stringify(exportedChildSerials) !== JSON.stringify(['2.1', '2.2']))
+    throw new Error('Composite child parent.child numbering is incorrect.');
+  const nextSimpleRow = compositeRows.find(
+    (row) => String(row[1]).startsWith('Another Simple Item'),
+  );
+  if (nextSimpleRow?.[0] !== 3)
+    throw new Error('Top-level numbering leaked across composite children.');
   const compositeSheet = compositeWorkbook.Sheets['Civil Work'];
   const mergedAcrossGroup = (compositeSheet['!merges'] ?? []).some((merge) =>
     merge.s.r === groupRow && merge.e.r === groupRow && merge.s.c <= 1 && merge.e.c >= 5,
@@ -565,6 +583,9 @@ async function main() {
     .map((row) => String(row[1]).split(':')[0]);
   if (
     storageRow < 0 ||
+    compositeRows[storageRow][0] !== 4 ||
+    compositeRows[storageRow + 1][0] !== '4.1' ||
+    compositeRows[storageRow + 2][0] !== '4.2' ||
     JSON.stringify(storageChildren) !== JSON.stringify(['Shelves', 'Base Unit'])
   )
     throw new Error('Multiple composite groups did not preserve separate child order.');

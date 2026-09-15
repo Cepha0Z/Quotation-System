@@ -3092,50 +3092,56 @@ function Builder({ s }: { s: Store }) {
               setGroupName('');
             }}
           >
-            <div className="form-grid single-column">
-              <label htmlFor="composite-group-name">
-                Group name
-                <Input
-                  id="composite-group-name"
-                  value={groupName}
-                  onChange={(event) => setGroupName(event.target.value)}
-                  placeholder="Kitchen cabinets"
-                />
-              </label>
-              <label htmlFor="composite-group-description">
-                Description
-                <textarea
-                  id="composite-group-description"
-                  name="description"
-                  placeholder="Describe the complete commercial scope"
-                />
-              </label>
-              <div className="group-measure-fields">
-                <label>
-                  Overall quantity
-                  <Num
-                    value={groupQuantity}
-                    onChange={setGroupQuantity}
+            <div className="edit-group-scroll">
+              <div className="form-grid single-column">
+                <label htmlFor="composite-group-name">
+                  Group name
+                  <Input
+                    id="composite-group-name"
+                    value={groupName}
+                    onChange={(event) => setGroupName(event.target.value)}
+                    placeholder="Kitchen cabinets"
                   />
                 </label>
-                <label htmlFor="composite-group-unit">
-                  Overall unit
-                  <select
-                    id="composite-group-unit"
-                    value={groupUnit}
-                    onChange={(event) =>
-                      setGroupUnit(event.target.value as BoqUnit)
-                    }
-                  >
-                    {BOQ_UNITS.map((unit) => (
-                      <option key={unit}>{unit}</option>
-                    ))}
-                  </select>
+                <label htmlFor="composite-group-description">
+                  Description
+                  <textarea
+                    id="composite-group-description"
+                    name="description"
+                    placeholder="Describe the complete commercial scope"
+                  />
                 </label>
+                <div className="group-measure-fields">
+                  <label>
+                    Overall quantity
+                    <Num
+                      value={groupQuantity}
+                      onChange={setGroupQuantity}
+                    />
+                  </label>
+                  <label htmlFor="composite-group-unit">
+                    Overall unit
+                    <select
+                      id="composite-group-unit"
+                      value={groupUnit}
+                      onChange={(event) =>
+                        setGroupUnit(event.target.value as BoqUnit)
+                      }
+                    >
+                      {BOQ_UNITS.map((unit) => (
+                        <option key={unit}>{unit}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
               </div>
             </div>
-            <div className="actions">
-              <Button type="button" variant="outline" onClick={() => setGroupModal(false)}>
+            <div className="actions edit-group-actions">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setGroupModal(false)}
+              >
                 Cancel
               </Button>
               <Button type="submit" disabled={!groupName.trim()}>
