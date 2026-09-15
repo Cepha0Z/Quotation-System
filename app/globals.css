@@ -5671,19 +5671,37 @@ body {
   }
   .builder-head .builder-actions {
     position: absolute;
-    top: 14px;
-    right: calc(16px + var(--safe-right));
+    inset: 14px calc(16px + var(--safe-right)) auto auto;
     display: block;
     width: 44px;
+    max-width: 44px;
+    margin: 0;
+    transform: none;
   }
   .builder-head .save-revision {
     display: none;
   }
   .builder-head .project-actions-wrap {
+    position: static;
+    grid-column: auto;
     width: 44px;
+    min-width: 44px;
+    max-width: 44px;
   }
   .builder-head h1 {
     font-size: 26px;
+  }
+  .builder-head .project-menu {
+    position: fixed;
+    top: calc(var(--topbar-height) + 63px);
+    right: calc(12px + var(--safe-right));
+    left: auto;
+    width: min(280px, calc(100vw - 24px - var(--safe-left) - var(--safe-right)));
+    max-width: calc(100vw - 24px - var(--safe-left) - var(--safe-right));
+    max-height: calc(100dvh - var(--topbar-height) - 75px - var(--safe-bottom));
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
   .boq-drilldown {
     grid-template-columns: repeat(2, minmax(0, 1fr));
