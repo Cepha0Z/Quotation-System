@@ -175,6 +175,7 @@ type Store = {
   storageError: string | null;
   projects: Project[];
   setProjects: (v: Project[]) => void;
+  saveProjectsNow: (v: Project[]) => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
   deleteRoom: (projectId: string, roomId: string) => Promise<void>;
   rates: RateCardItem[];
@@ -405,6 +406,32 @@ function useStore(): Store {
         queueWrite('projects', () =>
           saveProjects(currentUser, previous, projectRef.current),
         );
+    },
+    saveProjectsNow: async (v) => {
+      if (!ready || !currentUser) {
+        projectRef.current = v;
+        sp(v);
+        return;
+      }
+      clearTimeout(timers.current.projects);
+      delete timers.current.projects;
+      delete pendingWrites.current.projects;
+      const previous = structuredClone(snapshotRef.current.projects);
+      const next = structuredClone(v);
+      setSaveState('saving');
+      setStorageError(null);
+      try {
+        await saveProjects(currentUser, previous, next);
+        projectRef.current = next;
+        sp(next);
+        setSaveState('saved');
+      } catch (cause) {
+        setSaveState('error');
+        setStorageError(
+          `Firebase could not save these changes. ${cause instanceof Error ? cause.message : 'Check your connection or account permissions.'}`,
+        );
+        throw cause;
+      }
     },
     deleteProject: async (projectId) => {
       if (!currentUser || currentUser.role !== 'admin') return;
@@ -2578,31 +2605,37 @@ function Builder({ s }: { s: Store }) {
                           room={room}
                           p={p}
                           canManageFinancials={s.canManageFinancials}
-                          patch={(change) =>
-                            update((q) => ({
-                              ...q,
-                              rooms: q.rooms.map((candidate) =>
-                                candidate.id !== room.id
-                                  ? candidate
-                                  : {
-                                      ...candidate,
-                                      items: candidate.items.map((entry) => {
-                                        if (entry.id === item.id)
-                                          return { ...entry, ...change };
-                                        if (
-                                          change.workType !== undefined &&
-                                          entry.parentItemId === item.id
-                                        )
-                                          return {
-                                            ...entry,
-                                            workType: change.workType,
-                                          };
-                                        return entry;
-                                      }),
-                                    },
-                              ),
-                            }))
-                          }
+                          patch={async (change) => {
+                            const next = s.projects.map((q) =>
+                              q.id !== id
+                                ? q
+                                : {
+                                    ...q,
+                                    updatedAt: new Date().toISOString(),
+                                    rooms: q.rooms.map((candidate) =>
+                                      candidate.id !== room.id
+                                        ? candidate
+                                        : {
+                                            ...candidate,
+                                            items: candidate.items.map((entry) => {
+                                              if (entry.id === item.id)
+                                                return { ...entry, ...change };
+                                              if (
+                                                change.workType !== undefined &&
+                                                entry.parentItemId === item.id
+                                              )
+                                                return {
+                                                  ...entry,
+                                                  workType: change.workType,
+                                                };
+                                              return entry;
+                                            }),
+                                          },
+                                    ),
+                                  },
+                            );
+                            await s.saveProjectsNow(next);
+                          }}
                           addChild={() => openItemPicker(item.id)}
                           remove={() => {
                             const count = orderedCompositeChildren(room, item).length;
@@ -3361,13 +3394,15 @@ function CompositeItem({
   room: Room;
   p: Project;
   canManageFinancials: boolean;
-  patch: (change: Partial<QuoteItem>) => void;
+  patch: (change: Partial<QuoteItem>) => Promise<void>;
   addChild: () => void;
   remove: () => void;
   children: ReactNode;
 }) {
   const [expanded, setExpanded] = useState(true);
   const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [draft, setDraft] = useState({
     name: item.name,
     description: item.description,
@@ -3386,7 +3421,20 @@ function CompositeItem({
       quantity: item.quantity,
       unit: item.unit ?? unitForMeasurement(item.measurementType),
     });
+    setSaveError('');
     setEditing(true);
+  };
+  const dirty =
+    draft.name !== item.name ||
+    draft.description !== item.description ||
+    draft.workType !== (item.workType ?? 'Other') ||
+    draft.notes !== item.notes ||
+    draft.quantity !== item.quantity ||
+    draft.unit !== (item.unit ?? unitForMeasurement(item.measurementType));
+  const requestClose = () => {
+    if (saving) return;
+    if (dirty && !window.confirm('Discard changes?')) return;
+    setEditing(false);
   };
   return (
     <section className="composite-item">
@@ -3434,26 +3482,39 @@ function CompositeItem({
           title="Edit group"
           subtitle="Update the grouped scope without changing component pricing."
           className="edit-group-modal"
-          close={() => setEditing(false)}
+          close={requestClose}
         >
           <form
             className="edit-group-form"
-            onSubmit={(event) => {
+            onSubmit={async (event) => {
               event.preventDefault();
-              if (!draft.name.trim()) return;
-              patch({
-                name: draft.name.trim(),
-                description: draft.description,
-                workType: draft.workType,
-                notes: draft.notes,
-                quantity: draft.quantity,
-                unit: draft.unit,
-                measurementType: measurementForUnit(draft.unit),
-                measureMode: 'quantity',
-              });
-              setEditing(false);
+              if (!draft.name.trim() || saving) return;
+              setSaving(true);
+              setSaveError('');
+              try {
+                await patch({
+                  name: draft.name.trim(),
+                  description: draft.description,
+                  workType: draft.workType,
+                  notes: draft.notes,
+                  quantity: draft.quantity,
+                  unit: draft.unit,
+                  measurementType: measurementForUnit(draft.unit),
+                  measureMode: 'quantity',
+                });
+                setEditing(false);
+              } catch (cause) {
+                setSaveError(
+                  cause instanceof Error
+                    ? cause.message
+                    : 'Could not save this group. Please try again.',
+                );
+              } finally {
+                setSaving(false);
+              }
             }}
           >
+            <div className="edit-group-scroll">
             <div className="form-grid single-column">
               <label htmlFor={`edit-group-name-${item.id}`}>
                 Group name
@@ -3544,16 +3605,19 @@ function CompositeItem({
               A group has no editable rate. Its total is calculated from its
               components.
             </p>
-            <div className="actions">
+            {saveError && <p className="edit-group-error" role="alert">{saveError}</p>}
+            </div>
+            <div className="actions edit-group-actions">
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setEditing(false)}
+                disabled={saving}
+                onClick={requestClose}
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={!draft.name.trim()}>
-                Save group
+              <Button type="submit" disabled={!draft.name.trim() || saving}>
+                {saving ? 'Saving…' : 'Save Changes'}
               </Button>
             </div>
           </form>

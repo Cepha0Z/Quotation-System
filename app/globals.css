@@ -2872,17 +2872,30 @@ textarea {
 
 .edit-group-modal {
   width: min(620px, 100%);
+  max-height: min(760px, calc(100dvh - 48px - var(--safe-top) - var(--safe-bottom)));
   padding: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 .edit-group-modal > header {
+  flex: 0 0 auto;
   margin: 0;
   padding: 22px 24px;
 }
 .edit-group-form {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+.edit-group-scroll {
+  min-height: 0;
   display: grid;
   gap: 20px;
   padding: 24px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .edit-group-form .form-grid { gap: 16px; }
 .group-measure-fields {
@@ -2904,13 +2917,27 @@ textarea {
   box-sizing: border-box;
   width: 100%;
   min-height: 104px;
-  height: auto;
+  height: 112px;
+  max-height: 180px;
   padding: 11px 12px;
   border: 1px solid var(--border);
   border-radius: 7px;
   background: #fff;
   line-height: 1.5;
-  resize: vertical;
+  resize: none;
+  overflow-y: auto;
+}
+.edit-group-actions {
+  flex: 0 0 auto;
+  padding: 16px 24px calc(16px + var(--safe-bottom));
+  border-top: 1px solid var(--border);
+  background: #fbfbf8;
+  box-shadow: 0 -8px 20px rgba(20, 45, 37, 0.04);
+}
+.edit-group-error {
+  margin: 0;
+  color: #8f342d;
+  font-size: 13px;
 }
 .edit-group-form textarea:focus {
   border-color: #6f9489;

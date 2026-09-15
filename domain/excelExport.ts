@@ -400,6 +400,7 @@ function styleDetailSheet(
     groupRows: number[];
     itemRows: number[];
     childRows: number[];
+    lastChildRows: number[];
     spaceSubtotalRows: number[];
     floorSubtotalRows: number[];
     totalRow: number;
@@ -458,12 +459,15 @@ function styleDetailSheet(
             : column === 0 || column === 2 || column === 3 || column === 4
               ? 'center'
               : 'right',
-        indent: column === 1 ? 1 : 0,
+        indent: column === 1 ? 2 : 0,
         wrapText: column === 1,
       },
       border: {
         ...borders.grid,
-        left: column === 0 ? edge('medium', c.headerLine) : borders.grid.left,
+        left: column === 1 ? edge('thin', c.headerLine) : borders.grid.left,
+        bottom: markers.lastChildRows.includes(row)
+          ? edge('medium', c.headerLine)
+          : borders.grid.bottom,
       },
       numFmt:
         column === 3 && typeof cell.v === 'number'
@@ -1121,6 +1125,7 @@ export async function createProjectExcelFile(
     const groupRows: number[] = [];
     const itemRows: number[] = [];
     const childRows: number[] = [];
+    const lastChildRows: number[] = [];
     const spaceSubtotalRows: number[] = [];
     const floorSubtotalRows: number[] = [];
     let serial = 1;
@@ -1160,7 +1165,8 @@ export async function createProjectExcelFile(
           'Amount (₹)',
         ]);
         let spaceTotal = 0;
-        for (const entry of entries) {
+        for (let entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
+          const entry = entries[entryIndex];
           if (entry.kind === 'group') {
             const total = entry.children.reduce(
               (sum, child) => sum + itemTotal(child, project.defaultTier),
@@ -1215,7 +1221,16 @@ export async function createProjectExcelFile(
             .join('\n');
           const amount = itemTotal(item, project.defaultTier);
           itemRows.push(rows.length);
-          if (parent) childRows.push(rows.length);
+          if (parent) {
+            childRows.push(rows.length);
+            const next = entries[entryIndex + 1];
+            if (
+              !next ||
+              next.kind !== 'item' ||
+              next.parent?.id !== parent.id
+            )
+              lastChildRows.push(rows.length);
+          }
           rows.push([
             serial,
             particulars,
@@ -1257,6 +1272,7 @@ export async function createProjectExcelFile(
       groupRows,
       itemRows,
       childRows,
+      lastChildRows,
       spaceSubtotalRows,
       floorSubtotalRows,
       totalRow,

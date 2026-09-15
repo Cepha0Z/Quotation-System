@@ -443,9 +443,9 @@ async function main() {
 
   const group = makeItem('kitchen-group', 'Kitchen Cabinets', 'Civil Work', {
     itemType: 'composite',
-    childrenOrder: ['base', 'wall', 'wardrobe', 'ceiling'],
+    childrenOrder: ['wardrobe', 'tv-unit'],
     description: 'Complete kitchen cabinetry scope',
-    quantity: 32,
+    quantity: 5,
     unit: 'Sq.ft',
     measurementType: 'sqft',
     measureMode: 'quantity',
@@ -466,16 +466,29 @@ async function main() {
       measureMode: 'quantity',
       rates: { standard: rate, premium: rate, luxury: rate },
     });
-  const wardrobe = component('wardrobe', 'Wardrobe', 32, 'Sq.ft', 1_000);
-  const wall = component('wall', 'Wall Cabinets', 8, 'R.ft', 9_200);
-  const base = component('base', 'Base Cabinets', 8, 'R.ft', 11_500);
-  const ceiling = component('ceiling', 'False Ceiling', 32, 'Sq.ft', 180);
+  const wardrobe = component('wardrobe', 'Wardrobe', 32, 'Sq.ft', 189);
+  const tvUnit = component('tv-unit', 'TV Unit', 32, 'Sq.ft', 1_200);
   const bedBack = makeItem('bed-back', 'Bed Back Panel', 'Civil Work', {
     quantity: 32,
     unit: 'Sq.ft',
     measurementType: 'sqft',
     measureMode: 'quantity',
     rates: { standard: 1_100, premium: 1_100, luxury: 1_100 },
+  });
+  const storageGroup = makeItem('storage-group', 'Living Storage', 'Civil Work', {
+    itemType: 'composite',
+    childrenOrder: ['shelves', 'base-unit'],
+    quantity: 1,
+    unit: 'Nos',
+    rates: { standard: 0, premium: 0, luxury: 0 },
+  });
+  const shelves = makeItem('shelves', 'Shelves', 'Civil Work', {
+    parentItemId: storageGroup.id,
+    rates: { standard: 0, premium: 0, luxury: 0 },
+  });
+  const baseUnit = makeItem('base-unit', 'Base Unit', 'Civil Work', {
+    parentItemId: storageGroup.id,
+    rates: { standard: 0, premium: 0, luxury: 0 },
   });
   const compositeProject: Project = {
     ...project,
@@ -488,7 +501,13 @@ async function main() {
         id: 'living',
         name: 'Living Room',
         floorId: 'ground',
-        items: [group, wardrobe, wall, base, ceiling, bedBack],
+        items: [group, tvUnit, wardrobe, bedBack],
+      },
+      {
+        id: 'study',
+        name: 'Study',
+        floorId: 'ground',
+        items: [storageGroup, baseUnit, shelves],
       },
     ],
     fees: [],
@@ -511,22 +530,20 @@ async function main() {
   );
   if (
     groupRow < 0 ||
-    compositeRows[groupRow][3] !== 32 ||
+    compositeRows[groupRow][3] !== 5 ||
     compositeRows[groupRow][4] !== 'Sq.ft' ||
     compositeRows[groupRow][5] !== '—' ||
-    compositeRows[groupRow][6] !== 203_360
+    compositeRows[groupRow][6] !== 44_448
   )
     throw new Error('Composite parent row or display-only total is incorrect.');
   const exportedNames = compositeRows
-    .slice(groupRow + 1, groupRow + 5)
+    .slice(groupRow + 1, groupRow + 3)
     .map((row) => String(row[1]).split(':')[0]);
   if (
     JSON.stringify(exportedNames) !==
     JSON.stringify([
-      'Base Cabinets',
-      'Wall Cabinets',
       'Wardrobe',
-      'False Ceiling',
+      'TV Unit',
     ])
   )
     throw new Error('Composite children did not follow childrenOrder.');
@@ -538,14 +555,25 @@ async function main() {
     throw new Error('Composite parent must remain a normal unmerged BOQ row.');
   const compositeArchive = unzipSync(compositeExport.bytes);
   const compositeStylesXml = strFromU8(compositeArchive['xl/styles.xml']);
-  if (!/indent="1"/.test(compositeStylesXml))
+  if (!/indent="2"/.test(compositeStylesXml))
     throw new Error('Composite child hierarchy must use Excel indentation.');
+  const storageRow = compositeRows.findIndex((row) =>
+    String(row[1]).startsWith('Living Storage'),
+  );
+  const storageChildren = compositeRows
+    .slice(storageRow + 1, storageRow + 3)
+    .map((row) => String(row[1]).split(':')[0]);
+  if (
+    storageRow < 0 ||
+    JSON.stringify(storageChildren) !== JSON.stringify(['Shelves', 'Base Unit'])
+  )
+    throw new Error('Multiple composite groups did not preserve separate child order.');
   const livingSubtotal = compositeRows.find(
     (row) => row[0] === 'Living Room subtotal',
   );
   if (
-    livingSubtotal?.[6] !== 238_560 ||
-    quoteTotals(compositeProject).interior !== 238_560
+    livingSubtotal?.[6] !== 79_648 ||
+    quoteTotals(compositeProject).interior !== 79_648
   )
     throw new Error('Composite export double-counted its parent or children.');
 
