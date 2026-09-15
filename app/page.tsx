@@ -3465,12 +3465,14 @@ function CompositeItem({
             {inr(compositeTotal(item, room, p.defaultTier))}
           </strong>
         )}
-        <Button variant="outline" onClick={openEditor}>
+        <Button variant="outline" className="edit-item composite-edit" onClick={openEditor}>
           Edit group
         </Button>
-        <Button variant="ghost" size="icon-lg" onClick={remove} aria-label={`Delete ${item.name}`}>
-          <Trash2 />
-        </Button>
+        <div className="item-actions-wrap composite-delete">
+          <Button variant="ghost" size="icon-lg" onClick={remove} aria-label={`Delete ${item.name}`}>
+            <Trash2 />
+          </Button>
+        </div>
       </header>
       {item.description && (
         <p className="composite-description">{item.description}</p>
