@@ -566,6 +566,19 @@ async function main() {
   if (nextSimpleRow?.[0] !== 3)
     throw new Error('Top-level numbering leaked across composite children.');
   const compositeSheet = compositeWorkbook.Sheets['Civil Work'];
+  const beforeGroupFill = compositeSheet[`B${groupRow}`]?.s?.fgColor?.rgb;
+  const parentFill = compositeSheet[`B${groupRow + 1}`]?.s?.fgColor?.rgb;
+  const childFill = compositeSheet[`B${groupRow + 2}`]?.s?.fgColor?.rgb;
+  const afterGroupFill = compositeSheet[`B${groupRow + 4}`]?.s?.fgColor?.rgb;
+  if (
+    beforeGroupFill !== 'F4F7F5' ||
+    afterGroupFill !== beforeGroupFill ||
+    parentFill !== 'D3E2DC' ||
+    childFill !== 'E2ECE7'
+  )
+    throw new Error(
+      'Composite parent, child, and surrounding simple-row fills are incorrect.',
+    );
   const mergedAcrossGroup = (compositeSheet['!merges'] ?? []).some((merge) =>
     merge.s.r === groupRow && merge.e.r === groupRow && merge.s.c <= 1 && merge.e.c >= 5,
   );

@@ -466,7 +466,7 @@ function styleDetailSheet(
         ...borders.grid,
         left: column === 1 ? edge('thin', c.headerLine) : borders.grid.left,
         bottom: markers.lastChildRows.includes(row)
-          ? edge('medium', c.headerLine)
+          ? edge('medium', c.lineSoft)
           : borders.grid.bottom,
       },
       numFmt:
