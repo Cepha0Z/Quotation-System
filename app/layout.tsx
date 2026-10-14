@@ -3,7 +3,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'Nebulous Design Workshop — Quotation Studio',
-  description: 'Local-first interior design quotation and BOQ workspace.',
+  description: 'Shared interior design quotation and BOQ workspace.',
 };
 
 export const viewport: Viewport = {

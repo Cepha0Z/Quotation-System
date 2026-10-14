@@ -1,12 +1,7 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { WORK_TYPES, normalizeProject, unitForMeasurement } from './boq';
 import { isCompositeItem, orderedCompositeChildren } from './composites';
-import {
-  itemBaseRate,
-  itemMeasure,
-  itemTotal,
-  quoteTotals,
-} from './pricing';
+import { itemBaseRate, itemMeasure, itemTotal, quoteTotals } from './pricing';
 import type { FirmSettings, Project, QuoteItem, Room } from './types';
 
 type Cell = {
@@ -20,21 +15,21 @@ type Worksheet = Record<string, unknown>;
 type BorderStyle = 'hair' | 'thin' | 'medium' | 'double';
 
 const EXCEL_THEME = {
-  font: 'Aptos',
+  font: 'Arial',
   colors: {
     green: '0B4A3F',
     greenDark: '07382F',
-    greenSoft: 'D3E2DC',
-    greenPale: 'E2ECE7',
-    warm: 'EEE9DE',
-    surface: 'F4F7F5',
-    surfaceStrong: 'E9EFEC',
+    greenSoft: 'E5EDE8',
+    greenPale: 'F4F8F6',
+    warm: 'F5F4F0',
+    surface: 'FFFFFF',
+    surfaceStrong: 'F5F6F5',
     white: 'FFFFFF',
     ink: '18211E',
     muted: '66706C',
-    line: '64766F',
-    lineSoft: '95A49E',
-    headerLine: '71968A',
+    line: '7E9188',
+    lineSoft: 'CFD7D2',
+    headerLine: 'ACBDB4',
   },
   numberFormats: {
     currency: '₹#,##0.00;[Red]-₹#,##0.00;₹0.00',
@@ -59,17 +54,17 @@ const EXCEL_THEME = {
     { wch: 21 },
   ],
   rowHeights: {
-    documentTitle: 34,
-    brand: 22,
-    spacer: 8,
+    documentTitle: 38,
+    brand: 26,
+    spacer: 12,
     title: 28,
     metadata: 22,
     section: 29,
     columns: 25,
-    floor: 30,
-    space: 27,
-    subtotal: 23,
-    floorSubtotal: 25,
+    floor: 34,
+    space: 28,
+    subtotal: 26,
+    floorSubtotal: 28,
     total: 31,
     notes: 22,
   },
@@ -84,16 +79,10 @@ const edge = (style: BorderStyle, color: string = c.line) => ({
 
 const borders = {
   grid: {
-    top: edge('thin', c.lineSoft),
     bottom: edge('thin', c.lineSoft),
-    left: edge('thin', c.lineSoft),
-    right: edge('thin', c.lineSoft),
   },
   header: {
-    top: edge('medium', c.greenDark),
-    bottom: edge('medium', c.greenDark),
-    left: edge('thin', c.headerLine),
-    right: edge('thin', c.headerLine),
+    bottom: edge('thin', c.headerLine),
   },
   section: {
     top: edge('medium', c.green),
@@ -102,16 +91,12 @@ const borders = {
     right: edge('thin', c.green),
   },
   subtotal: {
-    top: edge('medium', c.line),
-    bottom: edge('medium', c.line),
-    left: edge('thin', c.lineSoft),
-    right: edge('thin', c.lineSoft),
+    top: edge('thin', c.line),
+    bottom: edge('thin', c.lineSoft),
   },
   floorSubtotal: {
-    top: edge('medium', c.green),
-    bottom: edge('medium', c.green),
-    left: edge('thin', c.green),
-    right: edge('thin', c.green),
+    top: edge('thin', c.line),
+    bottom: edge('thin', c.line),
   },
   total: {
     top: edge('double', c.greenDark),
@@ -179,10 +164,10 @@ function applyOuterFrame(
         ...style,
         border: {
           ...border,
-          ...(row === 0 ? { top: edge('medium', c.greenDark) } : {}),
-          ...(row === lastRow ? { bottom: edge('medium', c.greenDark) } : {}),
-          ...(column === 0 ? { left: edge('medium', c.greenDark) } : {}),
-          ...(column === 6 ? { right: edge('medium', c.greenDark) } : {}),
+          ...(row === 0 ? { top: edge('thin', c.line) } : {}),
+          ...(row === lastRow ? { bottom: edge('thin', c.line) } : {}),
+          ...(column === 0 ? { left: edge('thin', c.line) } : {}),
+          ...(column === 6 ? { right: edge('thin', c.line) } : {}),
         },
       };
     }
@@ -310,69 +295,66 @@ function applyDocumentHeader(
     merges.push({ s: { r: row, c: 5 }, e: { r: row, c: 6 } });
   }
   styleRow(X, ws, 0, () => ({
-    fill: fill(c.green),
-    font: font(15, { bold: true, color: c.white }),
-    alignment: { vertical: 'center', horizontal: 'left' },
-    border: {
-      top: edge('medium', c.greenDark),
-      bottom: edge('thin', c.greenDark),
-      left: edge('medium', c.greenDark),
-      right: edge('medium', c.greenDark),
-    },
+    fill: fill(c.white),
+    font: font(15, { bold: true, color: c.greenDark }),
+    alignment: { vertical: 'center', horizontal: 'left', indent: 1 },
   }));
   getCell(X, ws, 0, 5).s = {
-    fill: fill(c.green),
-    font: font(9, { bold: true, color: 'DCEAE5' }),
+    fill: fill(c.white),
+    font: font(9, { color: c.muted }),
     alignment: { vertical: 'center', horizontal: 'center' },
-    border: {
-      left: edge('thin', '8FB6AA'),
-      top: edge('medium', c.greenDark),
-      bottom: edge('thin', c.greenDark),
-    },
   };
   getCell(X, ws, 0, 6).s = {
-    fill: fill(c.green),
-    font: font(10, { bold: true, color: c.white }),
-    alignment: { vertical: 'center', horizontal: 'left' },
-    border: {
-      top: edge('medium', c.greenDark),
-      right: edge('medium', c.greenDark),
-      bottom: edge('thin', c.greenDark),
+    fill: fill(c.white),
+    font: font(9, { color: c.ink }),
+    alignment: {
+      vertical: 'center',
+      horizontal: 'right',
+      indent: 1,
+      wrapText: true,
     },
   };
   styleRow(X, ws, 1, () => ({
-    fill: fill(c.green),
-    font: font(9, { color: 'DCEAE5' }),
+    fill: fill(c.white),
+    font: font(9, { color: c.muted }),
     alignment: { vertical: 'center', horizontal: 'left' },
-    border: { bottom: edge('medium', c.greenDark) },
+    border: { bottom: edge('thin', c.green) },
   }));
   getCell(X, ws, 1, 0).s = {
-    fill: fill(c.green),
-    font: font(10, { bold: true, color: c.white }),
-    alignment: { vertical: 'center', horizontal: 'left' },
-    border: {
-      left: edge('medium', c.greenDark),
-      bottom: edge('medium', c.greenDark),
+    fill: fill(c.white),
+    font: font(10, { bold: true, color: c.greenDark }),
+    alignment: {
+      vertical: 'center',
+      horizontal: 'left',
+      indent: 1,
+      wrapText: true,
     },
+    border: { bottom: edge('thin', c.green) },
   };
   getCell(X, ws, 1, 3).s = {
-    fill: fill(c.green),
-    font: font(9, { color: 'DCEAE5' }),
-    alignment: { vertical: 'center', horizontal: 'right' },
-    border: {
-      right: edge('medium', c.greenDark),
-      bottom: edge('medium', c.greenDark),
+    fill: fill(c.white),
+    font: font(9, { color: c.muted }),
+    alignment: {
+      vertical: 'center',
+      horizontal: 'right',
+      indent: 1,
+      wrapText: true,
     },
+    border: { bottom: edge('thin', c.green) },
   };
   for (const row of [3, 4, 5]) {
     styleRow(X, ws, row, (column, cell) => ({
-      fill: fill(column === 0 || column === 4 ? c.greenPale : c.surfaceStrong),
+      fill: fill(c.white),
       font:
         column === 0 || column === 4
-          ? font(9, { bold: true, color: c.greenDark })
+          ? font(9, { color: c.muted })
           : font(10, { color: c.ink }),
-      alignment: { vertical: 'center', horizontal: 'left' },
-      border: borders.grid,
+      alignment: {
+        vertical: 'center',
+        horizontal: 'left',
+        indent: 1,
+        wrapText: true,
+      },
     }));
   }
 }
@@ -385,7 +367,57 @@ function estimateWrappedHeight(text: unknown, widthCharacters = 74) {
         count + Math.max(1, Math.ceil(line.length / widthCharacters)),
       0,
     );
-  return Math.min(300, Math.max(27, logicalLines * 15 + 12));
+  return Math.min(409, Math.max(32, logicalLines * 14 + 16));
+}
+
+// Excel renders an optional-decimal format with a trailing dot for integers.
+function quantityFormat(value: unknown) {
+  return Number.isInteger(value) ? '#,##0' : EXCEL_THEME.numberFormats.quantity;
+}
+
+function finishDocument(
+  X: typeof import('xlsx-js-style'),
+  ws: Worksheet,
+  rows: (string | number)[][],
+) {
+  const heights = ws['!rows'] as { hpt: number }[];
+  const widths = ws['!cols'] as { wch: number }[];
+  for (const row of [3, 4, 5]) {
+    heights[row].hpt = Math.max(
+      24,
+      estimateWrappedHeight(
+        rows[row][1],
+        widths.slice(1, 4).reduce((sum, col) => sum + col.wch, 0) - 6,
+      ),
+      estimateWrappedHeight(rows[row][5], widths[5].wch + widths[6].wch - 6),
+    );
+  }
+  heights[1].hpt = Math.max(
+    26,
+    estimateWrappedHeight(
+      rows[1][0],
+      widths.slice(0, 3).reduce((sum, col) => sum + col.wch, 0) - 6,
+    ),
+    estimateWrappedHeight(
+      rows[1][3],
+      widths.slice(3).reduce((sum, col) => sum + col.wch, 0) - 6,
+    ),
+  );
+  for (let row = 0; row < rows.length; row++) {
+    for (let column = 0; column < 7; column++) {
+      const cell = getCell(X, ws, row, column);
+      const style = cell.s ?? {};
+      const alignment = (style.alignment ?? {}) as Record<string, unknown>;
+      if (alignment.horizontal === 'left' || alignment.horizontal === 'right')
+        cell.s = {
+          ...style,
+          alignment: { ...alignment, indent: alignment.indent ?? 1 },
+        };
+    }
+    if (rows[row].every((value) => value === ''))
+      heights[row].hpt = EXCEL_THEME.rowHeights.spacer;
+  }
+  applyOuterFrame(X, ws, rows.length - 1);
 }
 
 function styleDetailSheet(
@@ -432,11 +464,12 @@ function styleDetailSheet(
               ? 'center'
               : 'right',
         wrapText: column === 1,
+        indent: column === 1 || column >= 5 ? 1 : 0,
       },
       border: markers.itemRows.includes(row) ? borders.grid : undefined,
       numFmt:
         column === 3 && typeof cell.v === 'number'
-          ? EXCEL_THEME.numberFormats.quantity
+          ? quantityFormat(cell.v)
           : column === 2 && typeof cell.v === 'string' && cell.v
             ? '@'
             : (column === 5 || column === 6) && typeof cell.v === 'number'
@@ -464,14 +497,14 @@ function styleDetailSheet(
       },
       border: {
         ...borders.grid,
-        left: column === 1 ? edge('thin', c.headerLine) : borders.grid.left,
+        left: column === 1 ? edge('thin', c.headerLine) : undefined,
         bottom: markers.lastChildRows.includes(row)
-          ? edge('medium', c.lineSoft)
+          ? edge('thin', c.line)
           : borders.grid.bottom,
       },
       numFmt:
         column === 3 && typeof cell.v === 'number'
-          ? EXCEL_THEME.numberFormats.quantity
+          ? quantityFormat(cell.v)
           : (column === 5 || column === 6) && typeof cell.v === 'number'
             ? EXCEL_THEME.numberFormats.currency
             : undefined,
@@ -481,25 +514,25 @@ function styleDetailSheet(
   applyDocumentHeader(X, ws, merges);
 
   styleRow(X, ws, markers.titleRow, () => ({
-    fill: fill(c.greenDark),
-    font: font(13, { bold: true, color: c.white }),
+    fill: fill(c.white),
+    font: font(13, { bold: true, color: c.greenDark }),
     alignment: { vertical: 'center', horizontal: 'left', indent: 1 },
-    border: borders.total,
+    border: { bottom: edge('medium', c.green) },
   }));
   markers.columnHeaderRows.forEach((row) =>
     styleRow(X, ws, row, () => ({
-      fill: fill(c.green),
-      font: font(10, { bold: true, color: c.white }),
+      fill: fill(c.surfaceStrong),
+      font: font(10, { bold: true, color: c.greenDark }),
       alignment: { vertical: 'center', horizontal: 'center', wrapText: false },
       border: borders.header,
     })),
   );
   markers.floorRows.forEach((row) =>
     styleRow(X, ws, row, (column) => ({
-      fill: fill(column === 0 ? c.green : c.greenSoft),
+      fill: fill(c.white),
       font: font(12, {
         bold: true,
-        color: column === 0 ? c.white : c.greenDark,
+        color: c.greenDark,
       }),
       alignment: {
         vertical: 'center',
@@ -510,23 +543,16 @@ function styleDetailSheet(
         column === 0
           ? borders.header
           : {
-              top: edge('medium', c.green),
-              bottom: edge('medium', c.green),
-              right: column === 6 ? edge('medium', c.green) : undefined,
+              bottom: edge('thin', c.line),
             },
     })),
   );
   markers.spaceRows.forEach((row) =>
     styleRow(X, ws, row, () => ({
-      fill: fill(c.warm),
+      fill: fill(c.white),
       font: font(11, { bold: true, color: c.ink }),
       alignment: { vertical: 'center', horizontal: 'left', indent: 1 },
-      border: {
-        top: edge('thin', c.line),
-        bottom: edge('thin', c.line),
-        left: edge('medium', c.green),
-        right: edge('medium', c.green),
-      },
+      border: undefined,
     })),
   );
   markers.groupRows.forEach((row) =>
@@ -555,7 +581,7 @@ function styleDetailSheet(
       },
       numFmt:
         column === 3 && typeof cell.v === 'number'
-          ? EXCEL_THEME.numberFormats.quantity
+          ? quantityFormat(cell.v)
           : column === 6 && typeof cell.v === 'number'
             ? EXCEL_THEME.numberFormats.currency
             : undefined,
@@ -563,7 +589,7 @@ function styleDetailSheet(
   );
   markers.spaceSubtotalRows.forEach((row) =>
     styleRow(X, ws, row, (column, cell) => ({
-      fill: fill(c.surfaceStrong),
+      fill: fill(c.white),
       font: font(10, { bold: true }),
       alignment: {
         vertical: 'center',
@@ -626,16 +652,19 @@ function styleDetailSheet(
                       ? EXCEL_THEME.rowHeights.space
                       : markers.groupRows.includes(index)
                         ? estimateWrappedHeight(row[1], 70)
-                      : markers.itemRows.includes(index)
-                        ? estimateWrappedHeight(row[1])
-                        : markers.floorSubtotalRows.includes(index)
-                          ? EXCEL_THEME.rowHeights.floorSubtotal
-                          : index === markers.totalRow
-                            ? EXCEL_THEME.rowHeights.total
-                            : EXCEL_THEME.rowHeights.subtotal,
+                        : markers.itemRows.includes(index)
+                          ? estimateWrappedHeight(
+                              row[1],
+                              markers.childRows.includes(index) ? 64 : 70,
+                            )
+                          : markers.floorSubtotalRows.includes(index)
+                            ? EXCEL_THEME.rowHeights.floorSubtotal
+                            : index === markers.totalRow
+                              ? EXCEL_THEME.rowHeights.total
+                              : EXCEL_THEME.rowHeights.subtotal,
   }));
   ws['!merges'] = merges;
-  applyOuterFrame(X, ws, rows.length - 1);
+  finishDocument(X, ws, rows);
 }
 
 function splitExistingNotes(settings: FirmSettings) {
@@ -704,15 +733,15 @@ function styleSummarySheet(
   }
   applyDocumentHeader(X, ws, merges);
   styleRow(X, ws, markers.titleRow, () => ({
-    fill: fill(c.greenSoft),
+    fill: fill(c.white),
     font: font(12, { bold: true, color: c.greenDark }),
     alignment: { vertical: 'center', horizontal: 'left', indent: 1 },
-    border: borders.section,
+    border: { bottom: edge('medium', c.green) },
   }));
   for (const row of [markers.columnHeaderRow, markers.feeHeaderRow]) {
     styleRow(X, ws, row, () => ({
-      fill: fill(c.green),
-      font: font(10, { bold: true, color: c.white }),
+      fill: fill(c.surfaceStrong),
+      font: font(10, { bold: true, color: c.greenDark }),
       alignment: { vertical: 'center', horizontal: 'center' },
       border: borders.header,
     }));
@@ -746,10 +775,10 @@ function styleSummarySheet(
         : undefined,
   }));
   styleRow(X, ws, markers.feeSectionRow, () => ({
-    fill: fill(c.warm),
+    fill: fill(c.white),
     font: font(10, { bold: true, color: c.greenDark }),
     alignment: { vertical: 'center', horizontal: 'left' },
-    border: borders.section,
+    border: { bottom: edge('thin', c.line) },
   }));
   markers.feeRows.forEach((row) =>
     styleRow(X, ws, row, (column, cell) => ({
@@ -768,7 +797,7 @@ function styleSummarySheet(
   );
   for (const row of [markers.subtotalRow, markers.discountRow]) {
     styleRow(X, ws, row, (column, cell) => ({
-      fill: fill(c.surfaceStrong),
+      fill: fill(c.white),
       font: font(10, { bold: true }),
       alignment: {
         vertical: 'center',
@@ -796,18 +825,17 @@ function styleSummarySheet(
   }));
   if (markers.notesTitleRow !== undefined) {
     styleRow(X, ws, markers.notesTitleRow, () => ({
-      fill: fill(c.warm),
+      fill: fill(c.white),
       font: font(10, { bold: true, color: c.greenDark }),
       alignment: { vertical: 'center', horizontal: 'left' },
-      border: borders.section,
+      border: { bottom: edge('thin', c.line) },
     }));
   }
   markers.noteRows.forEach((row) =>
     styleRow(X, ws, row, () => ({
       fill: fill(c.surface),
       font: font(9, { color: c.muted }),
-      alignment: { vertical: 'top', horizontal: 'left', wrapText: true },
-      border: { bottom: edge('thin', c.lineSoft) },
+      alignment: { vertical: 'center', horizontal: 'left', wrapText: true },
     })),
   );
   ws['!cols'] = [...EXCEL_THEME.summaryColumns];
@@ -835,7 +863,7 @@ function styleSummarySheet(
                       : EXCEL_THEME.rowHeights.subtotal,
   }));
   ws['!merges'] = merges;
-  applyOuterFrame(X, ws, rows.length - 1);
+  finishDocument(X, ws, rows);
 }
 
 function xmlEscape(value: string) {
@@ -855,6 +883,7 @@ function patchWorksheetXml(
   xml: string,
   footerText: string,
   fitToHeight: number,
+  orientation: 'portrait' | 'landscape',
 ) {
   const sheetPr =
     '<sheetPr><pageSetUpPr fitToPage="1" autoPageBreaks="1"/></sheetPr>';
@@ -863,7 +892,8 @@ function patchWorksheetXml(
   } else {
     xml = xml.replace(/(<worksheet[^>]*>)/, `$1${sheetPr}`);
   }
-  const sheetViews = '<sheetViews><sheetView workbookViewId="0"/></sheetViews>';
+  const sheetViews =
+    '<sheetViews><sheetView workbookViewId="0" showGridLines="0"/></sheetViews>';
   xml = xml.replace(/<sheetViews[\s\S]*?<\/sheetViews>/, sheetViews);
   xml = xml
     .replace(/<printOptions[^>]*\/>/g, '')
@@ -873,7 +903,7 @@ function patchWorksheetXml(
   const printXml =
     '<printOptions horizontalCentered="1" gridLines="0" headings="0"/>' +
     '<pageMargins left="0.3" right="0.3" top="0.45" bottom="0.45" header="0.2" footer="0.25"/>' +
-    `<pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="${fitToHeight}" horizontalDpi="300" verticalDpi="300"/>` +
+    `<pageSetup paperSize="9" orientation="${orientation}" fitToWidth="1" fitToHeight="${fitToHeight}" horizontalDpi="300" verticalDpi="300"/>` +
     `<headerFooter><oddFooter>&amp;L${xmlEscape(footerText)}&amp;RPage &amp;P of &amp;N</oddFooter></headerFooter>`;
   if (xml.includes('<ignoredErrors'))
     return xml.replace('<ignoredErrors', `${printXml}<ignoredErrors`);
@@ -918,7 +948,12 @@ function patchNativeExcelFeatures(
     const path = `xl/worksheets/sheet${index + 1}.xml`;
     const xml = strFromU8(files[path]);
     files[path] = strToU8(
-      patchWorksheetXml(xml, footerText, sheet.fitToHeight),
+      patchWorksheetXml(
+        xml,
+        footerText,
+        sheet.fitToHeight,
+        index === 0 ? 'portrait' : 'landscape',
+      ),
     );
   });
   return zipSync(files, { level: 6 });
@@ -938,7 +973,8 @@ function orderedDetailEntries(space: Room, workType: string): DetailEntry[] {
           : [];
       const children = orderedCompositeChildren(space, item).filter(
         (child) =>
-          child.enabled && (child.workType ?? item.workType ?? 'Millwork') === workType,
+          child.enabled &&
+          (child.workType ?? item.workType ?? 'Millwork') === workType,
       );
       if (!children.length) return [];
       return [
@@ -1114,7 +1150,7 @@ export async function createProjectExcelFile(
     lastRow: number;
     repeatHeaderRow?: number;
     fitToHeight: number;
-  }[] = [{ name: 'Summary', lastRow: summaryRows.length, fitToHeight: 1 }];
+  }[] = [{ name: 'Summary', lastRow: summaryRows.length, fitToHeight: 0 }];
   for (const workType of workTypes) {
     const rows = baseRows(project, settings, generatedAt);
     const titleRow = rows.length;
@@ -1240,11 +1276,7 @@ export async function createProjectExcelFile(
             groupSerial.nextChild += 1;
             childRows.push(rows.length);
             const next = entries[entryIndex + 1];
-            if (
-              !next ||
-              next.kind !== 'item' ||
-              next.parent?.id !== parent.id
-            )
+            if (!next || next.kind !== 'item' || next.parent?.id !== parent.id)
               lastChildRows.push(rows.length);
           } else serial += 1;
           rows.push([

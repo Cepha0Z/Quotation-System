@@ -648,9 +648,24 @@ td small {
   font-size: 11px;
 }
 .form-grid {
+  min-width: 0;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 18px;
+}
+.form-grid > .wide {
+  grid-column: 1 / -1;
+}
+.form-grid textarea {
+  min-height: 96px;
+  height: auto;
+  resize: vertical;
+  line-height: 1.5;
+  padding: 10px 12px;
+}
+.modal .actions > button {
+  min-height: 40px;
+  padding-inline: 16px;
 }
 .form-grid.single-column {
   grid-template-columns: minmax(0, 1fr);
@@ -1216,6 +1231,24 @@ td small {
 .quote-room td {
   height: 55px;
 }
+.quote-room > header small {
+  margin-top: 3px;
+  font-size: 11px;
+  font-weight: 400;
+  color: #d7e3de;
+}
+.quote-group {
+  background: #e5ede8;
+}
+.quote-child {
+  background: #f4f8f6;
+}
+.quote-child td:first-child {
+  padding-left: 28px;
+}
+.quote-room tr {
+  break-inside: avoid;
+}
 .quote-room em {
   display: block;
   color: #a45e46;
@@ -1660,14 +1693,19 @@ td small {
   }
 }
 
-/* Final interaction and editorial typography pass */
+/* Controls use the UI face; reserve the editorial serif for headings. */
 button,
 select,
 .add-item,
 .save-revision,
 .summary-actions button,
 .rooms > button:last-child {
-  font-family: Georgia, 'Times New Roman', serif;
+  font-family:
+    Inter,
+    'Segoe UI',
+    system-ui,
+    -apple-system,
+    sans-serif;
   letter-spacing: 0.005em;
 }
 .item.off {
@@ -1692,7 +1730,7 @@ select,
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.9),
     0 8px 20px rgba(16, 60, 52, 0.09);
-  transform: translateY(-1px);
+  transform: none;
 }
 .add-item,
 .rooms > button:last-child {
@@ -1704,7 +1742,7 @@ select,
   font-size: 13px;
 }
 .context-menu button {
-  font-family: Georgia, 'Times New Roman', serif;
+  font-family: inherit;
   font-size: 13px;
 }
 @media print {
@@ -2591,6 +2629,55 @@ select,
   background: #eef1ed;
   color: var(--primary);
 }
+.project-menu-positioner {
+  z-index: 55;
+  max-width: calc(100vw - 24px);
+}
+.project-menu-positioner .project-menu {
+  position: static;
+  width: min(280px, calc(100vw - 24px));
+  max-height: min(var(--available-height), calc(100dvh - 24px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  outline: none;
+}
+.project-menu button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -3px;
+  background: #eef3f0;
+}
+.builder-head > div:first-child {
+  min-width: 0;
+}
+.builder-head h1,
+.page-title h1 {
+  overflow-wrap: anywhere;
+}
+.modal > header > button {
+  flex-shrink: 0;
+}
+.rate-card-search {
+  display: grid;
+  grid-template-columns: minmax(0, 440px) auto;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 0 22px 20px;
+}
+.rate-card-search label {
+  grid-column: 1 / -1;
+  color: #53615b;
+  font-size: 13px;
+  font-weight: 600;
+}
+.rate-card-search small {
+  color: #66736d;
+}
+@media (max-width: 480px) {
+  .rate-card-search {
+    grid-template-columns: minmax(0, 1fr);
+    padding-inline: 16px;
+  }
+}
 .item-actions-wrap > button {
   border: 1px solid transparent;
   border-radius: 7px;
@@ -2844,8 +2931,14 @@ textarea {
   gap: 8px;
   text-align: left;
 }
-.composite-toggle svg { width: 18px; flex: 0 0 auto; }
-.composite-toggle span { display: grid; gap: 3px; }
+.composite-toggle svg {
+  width: 18px;
+  flex: 0 0 auto;
+}
+.composite-toggle span {
+  display: grid;
+  gap: 3px;
+}
 .composite-toggle strong {
   color: #1d2925;
   font-size: 15px;
@@ -2863,7 +2956,9 @@ textarea {
 }
 .composite-total {
   color: #1d2925;
-  font: 500 18px Georgia, serif;
+  font:
+    500 18px Georgia,
+    serif;
   white-space: nowrap;
 }
 .composite-measure {
@@ -2884,10 +2979,23 @@ textarea {
   align-items: center;
   white-space: pre-wrap;
 }
-.composite-children { display: grid; gap: 9px; padding: 12px; background: #fafaf7; }
-.composite-children .item { background: white; }
-.composite-children .add-component { width: 100%; border-style: dashed; }
-.picker .composite-picker { background: #edf5f1; border-color: #b8cec4; }
+.composite-children {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+  background: #fafaf7;
+}
+.composite-children .item {
+  background: white;
+}
+.composite-children .add-component {
+  width: 100%;
+  border-style: dashed;
+}
+.picker .composite-picker {
+  background: #edf5f1;
+  border-color: #b8cec4;
+}
 
 @media (max-width: 640px) {
   .composite-item > header {
@@ -2898,21 +3006,33 @@ textarea {
     min-height: 84px;
     padding: 11px 8px 11px 11px;
   }
-  .composite-toggle { min-width: 0; }
-  .composite-toggle strong { font-size: 14px; font-weight: 650; }
-  .composite-total { font-size: 16px; }
+  .composite-toggle {
+    min-width: 0;
+  }
+  .composite-toggle strong {
+    font-size: 14px;
+    font-weight: 650;
+  }
+  .composite-total {
+    font-size: 16px;
+  }
   .composite-edit {
     grid-column: 1 / -1;
     justify-self: stretch;
     width: 100%;
   }
-  .composite-description { padding-left: 37px; }
+  .composite-description {
+    padding-left: 37px;
+  }
 }
 
 .edit-group-modal {
   box-sizing: border-box;
   width: min(620px, 100%);
-  max-height: min(760px, calc(100dvh - 48px - var(--safe-top) - var(--safe-bottom)));
+  max-height: min(
+    760px,
+    calc(100dvh - 48px - var(--safe-top) - var(--safe-bottom))
+  );
   padding: 0;
   overflow: hidden;
   display: flex;
@@ -2937,7 +3057,9 @@ textarea {
   overflow-y: auto;
   overscroll-behavior: contain;
 }
-.edit-group-form .form-grid { gap: 16px; }
+.edit-group-form .form-grid {
+  gap: 16px;
+}
 .group-measure-fields {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -3018,8 +3140,12 @@ textarea {
   .edit-group-form textarea {
     font-size: 16px;
   }
-  .group-measure-fields { grid-template-columns: 1fr; }
-  .composite-description { padding-left: 18px; }
+  .group-measure-fields {
+    grid-template-columns: 1fr;
+  }
+  .composite-description {
+    padding-left: 18px;
+  }
 }
 .room-components .item {
   width: 100%;
@@ -3256,8 +3382,8 @@ textarea {
   align-items: center;
   justify-content: flex-start;
   gap: 10px;
-  font-size: 12px;
-  font-weight: 550;
+  font-size: 14px;
+  font-weight: 500;
   line-height: 1.25;
   text-align: left;
   white-space: normal;
@@ -5396,11 +5522,20 @@ body {
   color: inherit;
   text-align: left;
 }
-.composite-rate-toggle:hover { background: rgba(255, 255, 255, 0.3); }
-.composite-rate-toggle > svg { width: 18px; height: 18px; }
-.composite-rate-toggle > span { min-width: 0; }
+.composite-rate-toggle:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+.composite-rate-toggle > svg {
+  width: 18px;
+  height: 18px;
+}
+.composite-rate-toggle > span {
+  min-width: 0;
+}
 .composite-rate-toggle strong,
-.composite-rate-toggle small { display: block; }
+.composite-rate-toggle small {
+  display: block;
+}
 .composite-rate-toggle strong {
   font-size: 14px;
 }
@@ -5409,7 +5544,10 @@ body {
   color: #61736c;
   font-weight: 500;
 }
-.composite-empty-cell { color: #71817b; text-align: center; }
+.composite-empty-cell {
+  color: #71817b;
+  text-align: center;
+}
 .rates-table .composite-child-row td {
   background: #fbfdfc;
 }
@@ -5426,14 +5564,17 @@ body {
   padding-left: 40px;
 }
 .composite-child-row .rate-item-content::before {
-  content: "";
+  content: '';
   position: absolute;
   left: 18px;
   top: -18px;
   bottom: -18px;
   border-left: 1px solid #abc0b8;
 }
-.rate-item-content > span:nth-child(2) { min-width: 0; flex: 1; }
+.rate-item-content > span:nth-child(2) {
+  min-width: 0;
+  flex: 1;
+}
 .composite-branch {
   align-self: flex-start;
   margin-top: 1px;
@@ -5456,8 +5597,14 @@ body {
   background: #fff;
   color: #35584f;
 }
-.child-order-controls button:disabled { opacity: 0.3; cursor: default; }
-.child-order-controls svg { width: 14px; height: 14px; }
+.child-order-controls button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.child-order-controls svg {
+  width: 14px;
+  height: 14px;
+}
 .rates-table-wrap {
   width: 100%;
   overflow-x: auto;
@@ -5669,7 +5816,7 @@ body {
     padding-right: calc(76px + var(--safe-right));
     position: relative;
   }
-  .builder-head .builder-actions {
+  .builder-head > .builder-actions:last-child {
     position: absolute;
     inset: 14px calc(16px + var(--safe-right)) auto auto;
     display: block;
@@ -5690,18 +5837,6 @@ body {
   }
   .builder-head h1 {
     font-size: 26px;
-  }
-  .builder-head .project-menu {
-    position: fixed;
-    top: calc(var(--topbar-height) + 63px);
-    right: calc(12px + var(--safe-right));
-    left: auto;
-    width: min(280px, calc(100vw - 24px - var(--safe-left) - var(--safe-right)));
-    max-width: calc(100vw - 24px - var(--safe-left) - var(--safe-right));
-    max-height: calc(100dvh - var(--topbar-height) - 75px - var(--safe-bottom));
-    overflow-x: hidden;
-    overflow-y: auto;
-    overscroll-behavior: contain;
   }
   .boq-drilldown {
     grid-template-columns: repeat(2, minmax(0, 1fr));

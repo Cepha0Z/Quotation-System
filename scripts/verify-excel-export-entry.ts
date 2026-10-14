@@ -412,8 +412,9 @@ async function main() {
       );
     }
     for (const token of [
-      'orientation="landscape"',
+      `orientation="${index === 0 ? 'portrait' : 'landscape'}"`,
       'fitToWidth="1"',
+      'showGridLines="0"',
       '<pageMargins',
     ]) {
       if (!xml.includes(token))
@@ -481,13 +482,18 @@ async function main() {
     'Civil Work',
     { rates: { standard: 0, premium: 0, luxury: 0 } },
   );
-  const storageGroup = makeItem('storage-group', 'Living Storage', 'Civil Work', {
-    itemType: 'composite',
-    childrenOrder: ['shelves', 'base-unit'],
-    quantity: 1,
-    unit: 'Nos',
-    rates: { standard: 0, premium: 0, luxury: 0 },
-  });
+  const storageGroup = makeItem(
+    'storage-group',
+    'Living Storage',
+    'Civil Work',
+    {
+      itemType: 'composite',
+      childrenOrder: ['shelves', 'base-unit'],
+      quantity: 1,
+      unit: 'Nos',
+      rates: { standard: 0, premium: 0, luxury: 0 },
+    },
+  );
   const shelves = makeItem('shelves', 'Shelves', 'Civil Work', {
     parentItemId: storageGroup.id,
     rates: { standard: 0, premium: 0, luxury: 0 },
@@ -523,6 +529,10 @@ async function main() {
     firmSettings,
     { generatedAt: new Date('2026-09-12T00:00:00.000Z') },
   );
+  await fs.writeFile(
+    path.join(outputDir, 'Composite-quotation-review.xlsx'),
+    compositeExport.bytes,
+  );
   const compositeWorkbook = X.read(compositeExport.bytes, {
     type: 'array',
     cellStyles: true,
@@ -543,25 +553,21 @@ async function main() {
   )
     throw new Error('Composite parent row or display-only total is incorrect.');
   if (compositeRows[groupRow][0] !== 2)
-    throw new Error('Composite parent did not consume a top-level serial number.');
+    throw new Error(
+      'Composite parent did not consume a top-level serial number.',
+    );
   const exportedNames = compositeRows
     .slice(groupRow + 1, groupRow + 3)
     .map((row) => String(row[1]).split(':')[0]);
-  if (
-    JSON.stringify(exportedNames) !==
-    JSON.stringify([
-      'Wardrobe',
-      'TV Unit',
-    ])
-  )
+  if (JSON.stringify(exportedNames) !== JSON.stringify(['Wardrobe', 'TV Unit']))
     throw new Error('Composite children did not follow childrenOrder.');
   const exportedChildSerials = compositeRows
     .slice(groupRow + 1, groupRow + 3)
     .map((row) => row[0]);
   if (JSON.stringify(exportedChildSerials) !== JSON.stringify(['2.1', '2.2']))
     throw new Error('Composite child parent.child numbering is incorrect.');
-  const nextSimpleRow = compositeRows.find(
-    (row) => String(row[1]).startsWith('Another Simple Item'),
+  const nextSimpleRow = compositeRows.find((row) =>
+    String(row[1]).startsWith('Another Simple Item'),
   );
   if (nextSimpleRow?.[0] !== 3)
     throw new Error('Top-level numbering leaked across composite children.');
@@ -571,16 +577,20 @@ async function main() {
   const childFill = compositeSheet[`B${groupRow + 2}`]?.s?.fgColor?.rgb;
   const afterGroupFill = compositeSheet[`B${groupRow + 4}`]?.s?.fgColor?.rgb;
   if (
-    beforeGroupFill !== 'F4F7F5' ||
+    beforeGroupFill !== 'FFFFFF' ||
     afterGroupFill !== beforeGroupFill ||
-    parentFill !== 'D3E2DC' ||
-    childFill !== 'E2ECE7'
+    parentFill !== 'E5EDE8' ||
+    childFill !== 'F4F8F6'
   )
     throw new Error(
       'Composite parent, child, and surrounding simple-row fills are incorrect.',
     );
-  const mergedAcrossGroup = (compositeSheet['!merges'] ?? []).some((merge) =>
-    merge.s.r === groupRow && merge.e.r === groupRow && merge.s.c <= 1 && merge.e.c >= 5,
+  const mergedAcrossGroup = (compositeSheet['!merges'] ?? []).some(
+    (merge) =>
+      merge.s.r === groupRow &&
+      merge.e.r === groupRow &&
+      merge.s.c <= 1 &&
+      merge.e.c >= 5,
   );
   if (mergedAcrossGroup)
     throw new Error('Composite parent must remain a normal unmerged BOQ row.');
@@ -601,7 +611,9 @@ async function main() {
     compositeRows[storageRow + 2][0] !== '4.2' ||
     JSON.stringify(storageChildren) !== JSON.stringify(['Shelves', 'Base Unit'])
   )
-    throw new Error('Multiple composite groups did not preserve separate child order.');
+    throw new Error(
+      'Multiple composite groups did not preserve separate child order.',
+    );
   const livingSubtotal = compositeRows.find(
     (row) => row[0] === 'Living Room subtotal',
   );

@@ -1,6 +1,8 @@
 'use client';
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { Dialog } from '@base-ui/react/dialog';
+import { Popover } from '@base-ui/react/popover';
 import {
   HashRouter,
   Navigate,
@@ -614,7 +616,11 @@ function Shell({ s }: { s: Store }) {
           >
             {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
           </button>
-          <button className="mobile-nav-close" onClick={() => setOpen(false)}>
+          <button
+            className="mobile-nav-close"
+            aria-label="Close navigation"
+            onClick={() => setOpen(false)}
+          >
             <X />
           </button>
         </div>
@@ -622,6 +628,7 @@ function Shell({ s }: { s: Store }) {
           {visibleNav.map(([to, label, I]) => (
             <button
               key={to}
+              aria-label={label}
               className={location.pathname.startsWith(to) ? 'active' : ''}
               onClick={() => {
                 go(to);
@@ -650,7 +657,11 @@ function Shell({ s }: { s: Store }) {
       </aside>
       <div className="main">
         <header className="topbar">
-          <button className="hamb" onClick={() => setOpen(true)}>
+          <button
+            className="hamb"
+            aria-label="Open navigation"
+            onClick={() => setOpen(true)}
+          >
             <Menu />
           </button>
           <div>
@@ -849,29 +860,39 @@ function Modal({
   children: ReactNode;
 }) {
   return (
-    <div
-      className="backdrop"
-      onMouseDown={(e) => e.target === e.currentTarget && close()}
+    <Dialog.Root
+      open
+      onOpenChange={(open) => {
+        if (!open) close();
+      }}
     >
-      <section className={`modal ${className ?? ''}`}>
-        <header>
-          <div>
-            <small>NEBULOUS DESIGN</small>
-            <h2>{title}</h2>
-            {subtitle && <p>{subtitle}</p>}
-          </div>
-          <Button
-            variant="ghost"
-            size="icon-lg"
-            onClick={close}
-            aria-label={`Close ${title}`}
-          >
-            <X />
-          </Button>
-        </header>
-        {children}
-      </section>
-    </div>
+      <Dialog.Portal>
+        <div className="backdrop">
+          <Dialog.Popup className={`modal ${className ?? ''}`}>
+            <header>
+              <div>
+                <small>NEBULOUS DESIGN</small>
+                <Dialog.Title render={<h2 />}>{title}</Dialog.Title>
+                {subtitle && (
+                  <Dialog.Description render={<p />}>
+                    {subtitle}
+                  </Dialog.Description>
+                )}
+              </div>
+              <Button
+                variant="ghost"
+                size="icon-lg"
+                onClick={close}
+                aria-label={`Close ${title}`}
+              >
+                <X />
+              </Button>
+            </header>
+            {children}
+          </Dialog.Popup>
+        </div>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 function NewProject({ s }: { s: Store }) {
@@ -1461,8 +1482,12 @@ function Dashboard({ s }: { s: Store }) {
     fees = s.projects.reduce((a, p) => a + quoteTotals(p).feeTotal, 0);
   return (
     <Page
-      title="Good afternoon"
-      sub="Here’s the commercial view across your studio."
+      title="Studio overview"
+      sub={
+        s.canManageFinancials
+          ? 'Projects, quotations and professional fees at a glance.'
+          : 'Your assigned projects and recent work.'
+      }
     >
       <div className="metrics">
         <Metric
@@ -1479,7 +1504,7 @@ function Dashboard({ s }: { s: Store }) {
             />
             <Metric
               green
-              label="Design fee revenue"
+              label="Professional fees"
               value={inr(fees)}
               note="Projected fee income"
             />
@@ -1889,6 +1914,15 @@ function Builder({ s }: { s: Store }) {
     [floorMenuId, setFloorMenuId] = useState(''),
     [roomsOpen, setRoomsOpen] = useState(() => window.innerWidth > 1100),
     [summaryOpen, setSummaryOpen] = useState(() => window.innerWidth > 1100);
+  useEffect(() => {
+    const wide = window.matchMedia('(min-width: 1101px)');
+    const adaptPanels = () => {
+      setRoomsOpen(wide.matches);
+      setSummaryOpen(wide.matches);
+    };
+    wide.addEventListener('change', adaptPanels);
+    return () => wide.removeEventListener('change', adaptPanels);
+  }, []);
   if (!p && !s.hydrated)
     return <div className="boot">Preparing your quotation workspace…</div>;
   if (!p) return <Navigate to="/projects" />;
@@ -1976,7 +2010,10 @@ function Builder({ s }: { s: Store }) {
                   existing.id === itemParentId
                     ? {
                         ...existing,
-                        childrenOrder: [...(existing.childrenOrder ?? []), item.id],
+                        childrenOrder: [
+                          ...(existing.childrenOrder ?? []),
+                          item.id,
+                        ],
                       }
                     : existing,
                 ),
@@ -2024,11 +2061,7 @@ function Builder({ s }: { s: Store }) {
     setRevisionModal(false);
     setRevisionNote('');
   }
-  const renderItem = (
-    item: QuoteItem,
-    index: number,
-    parent?: QuoteItem,
-  ) => (
+  const renderItem = (item: QuoteItem, index: number, parent?: QuoteItem) => (
     <Item
       key={item.id}
       item={item}
@@ -2075,7 +2108,10 @@ function Builder({ s }: { s: Store }) {
           ...q,
           rooms: q.rooms.map((candidate) =>
             candidate.id === room.id
-              ? { ...candidate, items: removeItemTree(candidate.items, item.id) }
+              ? {
+                  ...candidate,
+                  items: removeItemTree(candidate.items, item.id),
+                }
               : candidate,
           ),
         }))
@@ -2093,7 +2129,10 @@ function Builder({ s }: { s: Store }) {
                         items: candidate.items.filter((x) => x.id !== item.id),
                       }
                     : candidate.id === destination
-                      ? { ...candidate, items: [...candidate.items, structuredClone(item)] }
+                      ? {
+                          ...candidate,
+                          items: [...candidate.items, structuredClone(item)],
+                        }
                       : candidate,
                 ),
               }))
@@ -2113,7 +2152,9 @@ function Builder({ s }: { s: Store }) {
                   direction < 0 ? -1 : 1,
                 ),
               };
-            const roots = candidate.items.filter((entry) => !entry.parentItemId);
+            const roots = candidate.items.filter(
+              (entry) => !entry.parentItemId,
+            );
             const rootIndex = roots.findIndex((entry) => entry.id === item.id);
             const target = roots[rootIndex + direction];
             if (!target) return candidate;
@@ -2166,123 +2207,142 @@ function Builder({ s }: { s: Store }) {
             </Button>
           )}
           <div className="project-actions-wrap">
-            <Button
-              variant="outline"
-              size="icon-lg"
-              className="project-more"
-              onClick={() => setProjectActions((value) => !value)}
-              aria-label="Project actions"
-              title="Project actions"
+            <Popover.Root
+              open={projectActions}
+              onOpenChange={setProjectActions}
             >
-              <MoreHorizontal />
-            </Button>
-            {projectActions && (
-              <div className="context-menu project-menu">
-                {s.canManageFinancials && (
-                  <>
-                    <button
-                      onClick={() => {
-                        setProjectActions(false);
-                        go(`/projects/${id}/rates`);
-                      }}
-                    >
-                      <CircleDollarSign /> Project rates
-                    </button>
-                    <button
-                      onClick={() => {
-                        setProjectActions(false);
-                        setAssignmentModal(true);
-                      }}
-                    >
-                      <BriefcaseBusiness /> Assign employees
-                    </button>
-                    <button
-                      onClick={() => {
-                        setProjectActions(false);
-                        setCompare(true);
-                      }}
-                    >
-                      <BarChart3 />
-                      Compare tiers
-                    </button>
-                    <button onClick={() => go(`/projects/${id}/preview`)}>
-                      <ReceiptText />
-                      Quotation preview
-                    </button>
-                    <span />
-                  </>
-                )}
-                <button
-                  onClick={() => {
-                    setRenameValue(p.propertyName);
-                    setRenameModal(true);
-                    setProjectActions(false);
-                  }}
+              <Popover.Trigger
+                render={
+                  <Button
+                    variant="outline"
+                    size="icon-lg"
+                    className="project-more"
+                    aria-label="Project actions"
+                    title="Project actions"
+                  />
+                }
+              >
+                <MoreHorizontal />
+              </Popover.Trigger>
+              <Popover.Portal>
+                <Popover.Positioner
+                  className="project-menu-positioner"
+                  side="bottom"
+                  align="end"
+                  sideOffset={8}
+                  collisionPadding={12}
                 >
-                  <Pencil />
-                  Edit project details
-                </button>
-                <button
-                  onClick={() => {
-                    const copy = {
-                      ...structuredClone(p),
-                      id: uid(),
-                      propertyName: `${p.propertyName} copy`,
-                      createdAt: new Date().toISOString(),
-                      updatedAt: new Date().toISOString(),
-                    };
-                    s.setProjects([copy, ...s.projects]);
-                    setProjectActions(false);
-                    go(`/projects/${copy.id}`);
-                  }}
-                >
-                  <Copy />
-                  Duplicate project
-                </button>
-                <button
-                  onClick={() => {
-                    setProjectActions(false);
-                    go(`/projects/${id}/revisions`);
-                  }}
-                >
-                  <FileClock />
-                  Revision history
-                </button>
-                <button
-                  onClick={() => {
-                    setProjectActions(false);
-                    setRevisionModal(true);
-                  }}
-                >
-                  <Save />
-                  Save revision
-                </button>
-                {s.canManageFinancials && (
-                  <>
+                  <Popover.Popup
+                    className="context-menu project-menu"
+                    aria-label="Project actions"
+                  >
+                    {s.canManageFinancials && (
+                      <>
+                        <button
+                          onClick={() => {
+                            setProjectActions(false);
+                            go(`/projects/${id}/rates`);
+                          }}
+                        >
+                          <CircleDollarSign /> Project rates
+                        </button>
+                        <button
+                          onClick={() => {
+                            setProjectActions(false);
+                            setAssignmentModal(true);
+                          }}
+                        >
+                          <BriefcaseBusiness /> Assign employees
+                        </button>
+                        <button
+                          onClick={() => {
+                            setProjectActions(false);
+                            setCompare(true);
+                          }}
+                        >
+                          <BarChart3 />
+                          Compare tiers
+                        </button>
+                        <button onClick={() => go(`/projects/${id}/preview`)}>
+                          <ReceiptText />
+                          Quotation preview
+                        </button>
+                        <span />
+                      </>
+                    )}
                     <button
                       onClick={() => {
-                        void exportProjectExcel(p, s.settings);
+                        setRenameValue(p.propertyName);
+                        setRenameModal(true);
                         setProjectActions(false);
                       }}
                     >
-                      <Download />
-                      Export quotation
+                      <Pencil />
+                      Edit project details
                     </button>
-                    <span />
                     <button
-                      className="danger"
                       onClick={() => {
+                        const copy = {
+                          ...structuredClone(p),
+                          id: uid(),
+                          propertyName: `${p.propertyName} copy`,
+                          createdAt: new Date().toISOString(),
+                          updatedAt: new Date().toISOString(),
+                        };
+                        s.setProjects([copy, ...s.projects]);
                         setProjectActions(false);
-                        setDeleteProject(true);
+                        go(`/projects/${copy.id}`);
                       }}
                     >
-                      <Trash2 />
-                      Delete project
+                      <Copy />
+                      Duplicate project
                     </button>
-                  </>
-                )}
-              </div>
-            )}
+                    <button
+                      onClick={() => {
+                        setProjectActions(false);
+                        go(`/projects/${id}/revisions`);
+                      }}
+                    >
+                      <FileClock />
+                      Revision history
+                    </button>
+                    <button
+                      onClick={() => {
+                        setProjectActions(false);
+                        setRevisionModal(true);
+                      }}
+                    >
+                      <Save />
+                      Save revision
+                    </button>
+                    {s.canManageFinancials && (
+                      <>
+                        <button
+                          onClick={() => {
+                            void exportProjectExcel(p, s.settings);
+                            setProjectActions(false);
+                          }}
+                        >
+                          <Download />
+                          Export quotation
+                        </button>
+                        <span />
+                        <button
+                          className="danger"
+                          onClick={() => {
+                            setProjectActions(false);
+                            setDeleteProject(true);
+                          }}
+                        >
+                          <Trash2 />
+                          Delete project
+                        </button>
+                      </>
+                    )}
+                  </Popover.Popup>
+                </Popover.Positioner>
+              </Popover.Portal>
+            </Popover.Root>
           </div>
         </div>
       </header>
@@ -2617,19 +2677,25 @@ function Builder({ s }: { s: Store }) {
                                         ? candidate
                                         : {
                                             ...candidate,
-                                            items: candidate.items.map((entry) => {
-                                              if (entry.id === item.id)
-                                                return { ...entry, ...change };
-                                              if (
-                                                change.workType !== undefined &&
-                                                entry.parentItemId === item.id
-                                              )
-                                                return {
-                                                  ...entry,
-                                                  workType: change.workType,
-                                                };
-                                              return entry;
-                                            }),
+                                            items: candidate.items.map(
+                                              (entry) => {
+                                                if (entry.id === item.id)
+                                                  return {
+                                                    ...entry,
+                                                    ...change,
+                                                  };
+                                                if (
+                                                  change.workType !==
+                                                    undefined &&
+                                                  entry.parentItemId === item.id
+                                                )
+                                                  return {
+                                                    ...entry,
+                                                    workType: change.workType,
+                                                  };
+                                                return entry;
+                                              },
+                                            ),
                                           },
                                     ),
                                   },
@@ -2638,7 +2704,10 @@ function Builder({ s }: { s: Store }) {
                           }}
                           addChild={() => openItemPicker(item.id)}
                           remove={() => {
-                            const count = orderedCompositeChildren(room, item).length;
+                            const count = orderedCompositeChildren(
+                              room,
+                              item,
+                            ).length;
                             if (
                               count &&
                               !window.confirm(
@@ -2652,7 +2721,10 @@ function Builder({ s }: { s: Store }) {
                                 candidate.id === room.id
                                   ? {
                                       ...candidate,
-                                      items: removeItemTree(candidate.items, item.id),
+                                      items: removeItemTree(
+                                        candidate.items,
+                                        item.id,
+                                      ),
                                     }
                                   : candidate,
                               ),
@@ -3025,26 +3097,23 @@ function Builder({ s }: { s: Store }) {
                 }}
               >
                 <strong>Group / composite item</strong>
-                <small>One commercial scope made from separately priced components</small>
+                <small>
+                  One commercial scope made from separately priced components
+                </small>
               </button>
             )}
             {s.rates.map((r) => (
-              <button
-                key={r.id}
-                onClick={() => addPickedItem(r)}
-              >
+              <button key={r.id} onClick={() => addPickedItem(r)}>
                 <strong>{r.name}</strong>
                 <small>{r.description}</small>
                 {s.canManageFinancials && (
                   <span>
-                    {inr(r.rates[p.defaultTier])} / {r.unit}
+                    {inr(r.rates[p.defaultTier])} / {unitForMeasurement(r.unit)}
                   </span>
                 )}
               </button>
             ))}
-            <button
-              onClick={() => addPickedItem()}
-            >
+            <button onClick={() => addPickedItem()}>
               <strong>Custom item</strong>
               <small>Project-specific scope</small>
             </button>
@@ -3063,7 +3132,9 @@ function Builder({ s }: { s: Store }) {
             onSubmit={(event) => {
               event.preventDefault();
               if (!groupName.trim()) return;
-              const descriptionValue = new FormData(event.currentTarget).get('description');
+              const descriptionValue = new FormData(event.currentTarget).get(
+                'description',
+              );
               const parent: QuoteItem = {
                 ...fresh(),
                 itemType: 'composite',
@@ -3114,10 +3185,7 @@ function Builder({ s }: { s: Store }) {
                 <div className="group-measure-fields">
                   <label>
                     Overall quantity
-                    <Num
-                      value={groupQuantity}
-                      onChange={setGroupQuantity}
-                    />
+                    <Num value={groupQuantity} onChange={setGroupQuantity} />
                   </label>
                   <label htmlFor="composite-group-unit">
                     Overall unit
@@ -3455,9 +3523,12 @@ function CompositeItem({
           <span>
             <strong>{item.name}</strong>
             <small>
-              {components.length} {components.length === 1 ? 'component' : 'components'}
+              {components.length}{' '}
+              {components.length === 1 ? 'component' : 'components'}
             </small>
-            <small className="composite-measure">{itemMeasureLabel(item)}</small>
+            <small className="composite-measure">
+              {itemMeasureLabel(item)}
+            </small>
           </span>
         </button>
         {canManageFinancials && (
@@ -3465,11 +3536,20 @@ function CompositeItem({
             {inr(compositeTotal(item, room, p.defaultTier))}
           </strong>
         )}
-        <Button variant="outline" className="edit-item composite-edit" onClick={openEditor}>
+        <Button
+          variant="outline"
+          className="edit-item composite-edit"
+          onClick={openEditor}
+        >
           Edit group
         </Button>
         <div className="item-actions-wrap composite-delete">
-          <Button variant="ghost" size="icon-lg" onClick={remove} aria-label={`Delete ${item.name}`}>
+          <Button
+            variant="ghost"
+            size="icon-lg"
+            onClick={remove}
+            aria-label={`Delete ${item.name}`}
+          >
             <Trash2 />
           </Button>
         </div>
@@ -3480,7 +3560,11 @@ function CompositeItem({
       {expanded && (
         <div className="composite-children">
           {children}
-          <Button variant="outline" className="add-component" onClick={addChild}>
+          <Button
+            variant="outline"
+            className="add-component"
+            onClick={addChild}
+          >
             <Plus /> Add component
           </Button>
         </div>
@@ -3523,97 +3607,101 @@ function CompositeItem({
             }}
           >
             <div className="edit-group-scroll">
-            <div className="form-grid single-column">
-              <label htmlFor={`edit-group-name-${item.id}`}>
-                Group name
-                <Input
-                  id={`edit-group-name-${item.id}`}
-                  value={draft.name}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      name: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-              <label htmlFor={`edit-group-description-${item.id}`}>
-                Description
-                <textarea
-                  id={`edit-group-description-${item.id}`}
-                  value={draft.description}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      description: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-              <label htmlFor={`edit-group-work-type-${item.id}`}>
-                Work type
-                <select
-                  id={`edit-group-work-type-${item.id}`}
-                  value={draft.workType}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      workType: event.target.value,
-                    }))
-                  }
-                >
-                  {WORK_TYPES.map((entry) => (
-                    <option key={entry}>{entry}</option>
-                  ))}
-                </select>
-              </label>
-              <div className="group-measure-fields">
-                <label>
-                  Overall quantity
-                  <Num
-                    value={draft.quantity}
-                    onChange={(quantity) =>
-                      setDraft((current) => ({ ...current, quantity }))
-                    }
-                  />
-                </label>
-                <label htmlFor={`edit-group-unit-${item.id}`}>
-                  Overall unit
-                  <select
-                    id={`edit-group-unit-${item.id}`}
-                    value={draft.unit}
+              <div className="form-grid single-column">
+                <label htmlFor={`edit-group-name-${item.id}`}>
+                  Group name
+                  <Input
+                    id={`edit-group-name-${item.id}`}
+                    value={draft.name}
                     onChange={(event) =>
                       setDraft((current) => ({
                         ...current,
-                        unit: event.target.value as BoqUnit,
+                        name: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                <label htmlFor={`edit-group-description-${item.id}`}>
+                  Description
+                  <textarea
+                    id={`edit-group-description-${item.id}`}
+                    value={draft.description}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        description: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                <label htmlFor={`edit-group-work-type-${item.id}`}>
+                  Work type
+                  <select
+                    id={`edit-group-work-type-${item.id}`}
+                    value={draft.workType}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        workType: event.target.value,
                       }))
                     }
                   >
-                    {BOQ_UNITS.map((unit) => (
-                      <option key={unit}>{unit}</option>
+                    {WORK_TYPES.map((entry) => (
+                      <option key={entry}>{entry}</option>
                     ))}
                   </select>
                 </label>
+                <div className="group-measure-fields">
+                  <label>
+                    Overall quantity
+                    <Num
+                      value={draft.quantity}
+                      onChange={(quantity) =>
+                        setDraft((current) => ({ ...current, quantity }))
+                      }
+                    />
+                  </label>
+                  <label htmlFor={`edit-group-unit-${item.id}`}>
+                    Overall unit
+                    <select
+                      id={`edit-group-unit-${item.id}`}
+                      value={draft.unit}
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          unit: event.target.value as BoqUnit,
+                        }))
+                      }
+                    >
+                      {BOQ_UNITS.map((unit) => (
+                        <option key={unit}>{unit}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <label htmlFor={`edit-group-notes-${item.id}`}>
+                  Notes
+                  <textarea
+                    id={`edit-group-notes-${item.id}`}
+                    value={draft.notes}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        notes: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
               </div>
-              <label htmlFor={`edit-group-notes-${item.id}`}>
-                Notes
-                <textarea
-                  id={`edit-group-notes-${item.id}`}
-                  value={draft.notes}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      notes: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-            </div>
-            <p className="group-rate-note">
-              A group has no editable rate. Its total is calculated from its
-              components.
-            </p>
-            {saveError && <p className="edit-group-error" role="alert">{saveError}</p>}
+              <p className="group-rate-note">
+                A group has no editable rate. Its total is calculated from its
+                components.
+              </p>
+              {saveError && (
+                <p className="edit-group-error" role="alert">
+                  {saveError}
+                </p>
+              )}
             </div>
             <div className="actions edit-group-actions">
               <Button
@@ -3844,22 +3932,22 @@ function Item({
                     <label>
                       Move to room
                       <select
-                      defaultValue=""
-                      onChange={(event) => {
-                        if (event.target.value) move(event.target.value);
-                        setMore(false);
-                      }}
-                    >
-                      <option value="" disabled>
-                        Select room…
-                      </option>
-                      {p.rooms
-                        .filter((room) => room.id !== currentRoomId)
-                        .map((room) => (
-                          <option value={room.id} key={room.id}>
-                            {room.name}
-                          </option>
-                        ))}
+                        defaultValue=""
+                        onChange={(event) => {
+                          if (event.target.value) move(event.target.value);
+                          setMore(false);
+                        }}
+                      >
+                        <option value="" disabled>
+                          Select room…
+                        </option>
+                        {p.rooms
+                          .filter((room) => room.id !== currentRoomId)
+                          .map((room) => (
+                            <option value={room.id} key={room.id}>
+                              {room.name}
+                            </option>
+                          ))}
                       </select>
                     </label>
                   )}
@@ -4427,51 +4515,87 @@ function Preview({ s }: { s: Store }) {
             <small>{tl(p.defaultTier)} specification</small>
           </div>
         </section>
-        {p.rooms.map((r) => (
-          <section className="quote-room" key={r.id}>
-            <header>
-              <strong>{r.name}</strong>
-              <b>{inr(roomTotal(r, p.defaultTier))}</b>
-            </header>
-            <table>
-              <thead>
-                <tr>
-                  <th>Scope item</th>
-                  <th>Measurement</th>
-                  {p.showRates && <th className="num">Rate</th>}
-                  <th className="num">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {r.items
-                  .filter((i) => i.enabled && !isCompositeItem(i))
-                  .map((i) => (
-                    <tr key={i.id}>
-                      <td>
-                        <strong>{i.name}</strong>
-                        <small>{i.description}</small>
-                        {i.discount > 0 && (
-                          <em>Special discount -{inr(i.discount)}</em>
-                        )}
-                      </td>
-                      <td>
-                        {itemMeasure(i).toLocaleString('en-IN')}{' '}
-                        {i.measurementType}
-                      </td>
-                      {p.showRates && (
-                        <td className="num">
-                          {inr(itemBaseRate(i, p.defaultTier))}
+        {p.rooms
+          .filter((room) =>
+            room.items.some((item) => item.enabled && !isCompositeItem(item)),
+          )
+          .map((r) => (
+            <section className="quote-room" key={r.id}>
+              <header>
+                <strong>
+                  {r.name}
+                  <small>
+                    {p.floors?.find((floor) => floor.id === r.floorId)?.name}
+                  </small>
+                </strong>
+                <b>{inr(roomTotal(r, p.defaultTier))}</b>
+              </header>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Scope item</th>
+                    <th>Measurement</th>
+                    {p.showRates && <th className="num">Rate</th>}
+                    <th className="num">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {r.items
+                    .filter((i) => !i.parentItemId)
+                    .flatMap((item) => {
+                      if (!isCompositeItem(item))
+                        return item.enabled ? [item] : [];
+                      const children = orderedCompositeChildren(r, item).filter(
+                        (child) => child.enabled,
+                      );
+                      return children.length ? [item, ...children] : [];
+                    })
+                    .map((i) => (
+                      <tr
+                        key={i.id}
+                        className={
+                          isCompositeItem(i)
+                            ? 'quote-group'
+                            : i.parentItemId
+                              ? 'quote-child'
+                              : undefined
+                        }
+                      >
+                        <td>
+                          <strong>{i.name}</strong>
+                          <small>{i.description}</small>
+                          {i.discount > 0 && (
+                            <em>Special discount -{inr(i.discount)}</em>
+                          )}
                         </td>
-                      )}
-                      <td className="num">
-                        <strong>{inr(itemTotal(i, p.defaultTier))}</strong>
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </section>
-        ))}
+                        <td>
+                          {itemMeasure(i).toLocaleString('en-IN')}{' '}
+                          {i.customUnit ||
+                            i.unit ||
+                            unitForMeasurement(i.measurementType)}
+                        </td>
+                        {p.showRates && (
+                          <td className="num">
+                            {isCompositeItem(i)
+                              ? '—'
+                              : inr(itemBaseRate(i, p.defaultTier))}
+                          </td>
+                        )}
+                        <td className="num">
+                          <strong>
+                            {inr(
+                              isCompositeItem(i)
+                                ? compositeTotal(i, r, p.defaultTier)
+                                : itemTotal(i, p.defaultTier),
+                            )}
+                          </strong>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </section>
+          ))}
         <section className="quote-total">
           <div>
             {t.fees.map((f) => (
@@ -4481,6 +4605,9 @@ function Preview({ s }: { s: Store }) {
           <div>
             <Line label="Interior work" value={t.interior} />
             <Line label="Subtotal" value={t.subtotal} />
+            {t.discount > 0 && (
+              <Line label="Project discount" value={-t.discount} />
+            )}
             <p>
               <span>GRAND TOTAL</span>
               <strong>{inr(t.grandTotal)}</strong>
@@ -4543,8 +4670,7 @@ function ProjectRates({ s }: { s: Store }) {
     (project.floors ?? []).map((entry) => [entry.id, entry.name]),
   );
   const rows: ProjectRateRow[] = project.rooms.flatMap((room) =>
-    orderedPriceableItems(room)
-      .map((item) => ({
+    orderedPriceableItems(room).map((item) => ({
       key: `${room.id}:${item.id}`,
       room,
       floorName: floorNames.get(room.floorId ?? '') ?? 'Unassigned',
@@ -4556,7 +4682,7 @@ function ProjectRates({ s }: { s: Store }) {
           )
         : undefined,
       hasTemplate: Boolean(resolveTemplate(item, s.rates)),
-      })),
+    })),
   );
   const workTypes = [
     ...new Set(rows.map((row) => row.item.workType ?? 'Other')),
@@ -4659,10 +4785,7 @@ function ProjectRates({ s }: { s: Store }) {
   };
   const groupKey = (row: ProjectRateRow) =>
     row.parent ? `${row.room.id}:${row.parent.id}` : '';
-  const reorderChild = (
-    row: ProjectRateRow,
-    direction: -1 | 1,
-  ) => {
+  const reorderChild = (row: ProjectRateRow, direction: -1 | 1) => {
     if (!row.parent) return;
     s.setProjects(
       s.projects.map((candidateProject) =>
@@ -4822,233 +4945,241 @@ function ProjectRates({ s }: { s: Store }) {
                 );
                 return (
                   <Fragment key={row.key}>
-                  {showParent && row.parent && (
-                    <tr className="composite-rate-heading">
-                      <td>{row.parent.workType ?? 'Other'}</td>
-                      <td>{row.floorName}</td>
-                      <td>{row.room.name}</td>
-                      <td className="rate-item-cell composite-parent-cell">
-                        <button
-                          type="button"
-                          className="composite-rate-toggle"
-                          aria-expanded={groupExpanded}
-                          onClick={() =>
-                            setCollapsedGroups((current) => {
-                              const next = new Set(current);
-                              if (next.has(currentGroupKey))
-                                next.delete(currentGroupKey);
-                              else next.add(currentGroupKey);
-                              return next;
-                            })
-                          }
-                        >
-                          {groupExpanded ? <ChevronDown /> : <ChevronRight />}
-                          <span>
-                            <strong>{row.parent.name}</strong>
-                            <small>
-                              {orderedCompositeChildren(row.room, row.parent).length}{' '}
-                              components
-                            </small>
-                          </span>
-                        </button>
-                      </td>
-                      <td className="number-cell">
-                        {itemMeasure(row.parent).toLocaleString('en-IN', {
-                          maximumFractionDigits: 3,
-                        })}
-                      </td>
-                      <td>
-                        {row.parent.customUnit ||
-                          row.parent.unit ||
-                          unitForMeasurement(row.parent.measurementType)}
-                      </td>
-                      <td className="composite-empty-cell">—</td>
-                      <td className="composite-empty-cell">—</td>
-                      <td className="amount-cell">
-                        <strong>
-                          {inr(
-                            compositeTotal(
-                              row.parent,
-                              row.room,
-                              project.defaultTier,
-                            ),
-                          )}
-                        </strong>
-                      </td>
-                    </tr>
-                  )}
-                  {showChild && (
-                  <tr
-                    className={`${row.parent ? 'composite-child-row' : ''} ${!row.item.enabled ? 'rate-row-disabled' : ''}`}
-                  >
-                    <td>{row.item.workType ?? 'Other'}</td>
-                    <td>{row.floorName}</td>
-                    <td>{row.room.name}</td>
-                    <td className="rate-item-cell">
-                      <div className="rate-item-content">
-                        <span>
-                          <strong>{row.item.name}</strong>
-                          {row.item.description && (
-                            <small>{row.item.description}</small>
-                          )}
-                        </span>
-                        {row.parent && (
-                          <span className="child-order-controls">
-                            <button
-                              type="button"
-                              disabled={siblingIndex <= 0}
-                              onClick={() => reorderChild(row, -1)}
-                              aria-label={`Move ${row.item.name} up`}
-                              title="Move component up"
-                            >
-                              <ChevronUp />
-                            </button>
-                            <button
-                              type="button"
-                              disabled={siblingIndex === siblingOrder.length - 1}
-                              onClick={() => reorderChild(row, 1)}
-                              aria-label={`Move ${row.item.name} down`}
-                              title="Move component down"
-                            >
-                              <ChevronDown />
-                            </button>
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="number-cell">
-                      {itemMeasure(row.item).toLocaleString('en-IN', {
-                        maximumFractionDigits: 3,
-                      })}
-                    </td>
-                    <td>{unit}</td>
-                    <td>
-                      <div
-                        className="pricing-toggle"
-                        aria-label={`Pricing for ${row.item.name}`}
-                      >
-                        {(['unit', 'lump-sum'] as const).map((entry) => (
+                    {showParent && row.parent && (
+                      <tr className="composite-rate-heading">
+                        <td>{row.parent.workType ?? 'Other'}</td>
+                        <td>{row.floorName}</td>
+                        <td>{row.room.name}</td>
+                        <td className="rate-item-cell composite-parent-cell">
                           <button
                             type="button"
-                            key={entry}
-                            className={mode === entry ? 'active' : ''}
-                            disabled={pending.has(row.key)}
-                            onClick={async () => {
-                              if (mode === entry) return;
-                              const previousMode = mode;
-                              setModeDrafts((current) => ({
-                                ...current,
-                                [row.key]: entry,
-                              }));
-                              const valueToSave =
-                                !hasDraft &&
-                                row.hasTemplate &&
-                                row.item.rateOverride === undefined
-                                  ? ''
-                                  : rawRate;
-                              const saved = await saveRow(
-                                row,
-                                valueToSave,
-                                entry,
-                              );
-                              if (!saved)
-                                setModeDrafts((current) => ({
-                                  ...current,
-                                  [row.key]: previousMode,
-                                }));
-                            }}
-                          >
-                            {entry === 'unit' ? 'Area' : 'Flat'}
-                          </button>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="rate-input-cell">
-                      <div className="rate-input-wrap">
-                        <span>₹</span>
-                        <input
-                          ref={(element) => {
-                            rateInputs.current[row.key] = element;
-                          }}
-                          inputMode="decimal"
-                          value={rawRate}
-                          disabled={pending.has(row.key)}
-                          placeholder="Unpriced"
-                          aria-label={`Rate for ${row.item.name}`}
-                          onFocus={(event) => {
-                            if (event.currentTarget.value === '0')
-                              event.currentTarget.select();
-                          }}
-                          onChange={(event) => {
-                            const value = event.target.value;
-                            if (value && !/^\d*\.?\d*$/.test(value)) return;
-                            setDrafts((current) => ({
-                              ...current,
-                              [row.key]: value,
-                            }));
-                            scheduleSave(row, value);
-                          }}
-                          onBlur={() => {
-                            if (
-                              Object.prototype.hasOwnProperty.call(
-                                drafts,
-                                row.key,
-                              )
-                            )
-                              void saveRow(row, rawRate);
-                          }}
-                          onKeyDown={async (event) => {
-                            if (event.key !== 'Enter') return;
-                            event.preventDefault();
-                            const saved = await saveRow(row, rawRate);
-                            if (saved) {
-                              const next = visibleRows[index + 1];
-                              if (next) rateInputs.current[next.key]?.focus();
+                            className="composite-rate-toggle"
+                            aria-expanded={groupExpanded}
+                            onClick={() =>
+                              setCollapsedGroups((current) => {
+                                const next = new Set(current);
+                                if (next.has(currentGroupKey))
+                                  next.delete(currentGroupKey);
+                                else next.add(currentGroupKey);
+                                return next;
+                              })
                             }
-                          }}
-                        />
-                        <small>
-                          {mode === 'unit' ? `/ ${unit}` : 'Total'}
-                        </small>
-                      </div>
-                      <div
-                        className={`rate-source ${
-                          failed.has(row.key) ? 'failed' : source.toLowerCase()
-                        }`}
+                          >
+                            {groupExpanded ? <ChevronDown /> : <ChevronRight />}
+                            <span>
+                              <strong>{row.parent.name}</strong>
+                              <small>
+                                {
+                                  orderedCompositeChildren(row.room, row.parent)
+                                    .length
+                                }{' '}
+                                components
+                              </small>
+                            </span>
+                          </button>
+                        </td>
+                        <td className="number-cell">
+                          {itemMeasure(row.parent).toLocaleString('en-IN', {
+                            maximumFractionDigits: 3,
+                          })}
+                        </td>
+                        <td>
+                          {row.parent.customUnit ||
+                            row.parent.unit ||
+                            unitForMeasurement(row.parent.measurementType)}
+                        </td>
+                        <td className="composite-empty-cell">—</td>
+                        <td className="composite-empty-cell">—</td>
+                        <td className="amount-cell">
+                          <strong>
+                            {inr(
+                              compositeTotal(
+                                row.parent,
+                                row.room,
+                                project.defaultTier,
+                              ),
+                            )}
+                          </strong>
+                        </td>
+                      </tr>
+                    )}
+                    {showChild && (
+                      <tr
+                        className={`${row.parent ? 'composite-child-row' : ''} ${!row.item.enabled ? 'rate-row-disabled' : ''}`}
                       >
-                        {pending.has(row.key)
-                          ? 'Saving…'
-                          : failed.has(row.key)
-                            ? 'Not saved'
-                            : unpriced
-                              ? 'Unpriced'
-                              : source}
-                        {!pending.has(row.key) &&
-                          row.hasTemplate &&
-                          row.item.rateOverride !== undefined && (
-                            <button
-                              type="button"
+                        <td>{row.item.workType ?? 'Other'}</td>
+                        <td>{row.floorName}</td>
+                        <td>{row.room.name}</td>
+                        <td className="rate-item-cell">
+                          <div className="rate-item-content">
+                            <span>
+                              <strong>{row.item.name}</strong>
+                              {row.item.description && (
+                                <small>{row.item.description}</small>
+                              )}
+                            </span>
+                            {row.parent && (
+                              <span className="child-order-controls">
+                                <button
+                                  type="button"
+                                  disabled={siblingIndex <= 0}
+                                  onClick={() => reorderChild(row, -1)}
+                                  aria-label={`Move ${row.item.name} up`}
+                                  title="Move component up"
+                                >
+                                  <ChevronUp />
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={
+                                    siblingIndex === siblingOrder.length - 1
+                                  }
+                                  onClick={() => reorderChild(row, 1)}
+                                  aria-label={`Move ${row.item.name} down`}
+                                  title="Move component down"
+                                >
+                                  <ChevronDown />
+                                </button>
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="number-cell">
+                          {itemMeasure(row.item).toLocaleString('en-IN', {
+                            maximumFractionDigits: 3,
+                          })}
+                        </td>
+                        <td>{unit}</td>
+                        <td>
+                          <div
+                            className="pricing-toggle"
+                            aria-label={`Pricing for ${row.item.name}`}
+                          >
+                            {(['unit', 'lump-sum'] as const).map((entry) => (
+                              <button
+                                type="button"
+                                key={entry}
+                                className={mode === entry ? 'active' : ''}
+                                disabled={pending.has(row.key)}
+                                onClick={async () => {
+                                  if (mode === entry) return;
+                                  const previousMode = mode;
+                                  setModeDrafts((current) => ({
+                                    ...current,
+                                    [row.key]: entry,
+                                  }));
+                                  const valueToSave =
+                                    !hasDraft &&
+                                    row.hasTemplate &&
+                                    row.item.rateOverride === undefined
+                                      ? ''
+                                      : rawRate;
+                                  const saved = await saveRow(
+                                    row,
+                                    valueToSave,
+                                    entry,
+                                  );
+                                  if (!saved)
+                                    setModeDrafts((current) => ({
+                                      ...current,
+                                      [row.key]: previousMode,
+                                    }));
+                                }}
+                              >
+                                {entry === 'unit' ? 'Area' : 'Flat'}
+                              </button>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="rate-input-cell">
+                          <div className="rate-input-wrap">
+                            <span>₹</span>
+                            <input
+                              ref={(element) => {
+                                rateInputs.current[row.key] = element;
+                              }}
+                              inputMode="decimal"
+                              value={rawRate}
                               disabled={pending.has(row.key)}
-                              onClick={() => {
+                              placeholder="Unpriced"
+                              aria-label={`Rate for ${row.item.name}`}
+                              onFocus={(event) => {
+                                if (event.currentTarget.value === '0')
+                                  event.currentTarget.select();
+                              }}
+                              onChange={(event) => {
+                                const value = event.target.value;
+                                if (value && !/^\d*\.?\d*$/.test(value)) return;
                                 setDrafts((current) => ({
                                   ...current,
-                                  [row.key]: '',
+                                  [row.key]: value,
                                 }));
-                                void saveRow(row, '');
+                                scheduleSave(row, value);
                               }}
-                            >
-                              Use master
-                            </button>
-                          )}
-                      </div>
-                    </td>
-                    <td className="amount-cell">
-                      {unpriced
-                        ? '—'
-                        : inr(itemTotal(previewItem, project.defaultTier))}
-                    </td>
-                  </tr>
-                  )}
+                              onBlur={() => {
+                                if (
+                                  Object.prototype.hasOwnProperty.call(
+                                    drafts,
+                                    row.key,
+                                  )
+                                )
+                                  void saveRow(row, rawRate);
+                              }}
+                              onKeyDown={async (event) => {
+                                if (event.key !== 'Enter') return;
+                                event.preventDefault();
+                                const saved = await saveRow(row, rawRate);
+                                if (saved) {
+                                  const next = visibleRows[index + 1];
+                                  if (next)
+                                    rateInputs.current[next.key]?.focus();
+                                }
+                              }}
+                            />
+                            <small>
+                              {mode === 'unit' ? `/ ${unit}` : 'Total'}
+                            </small>
+                          </div>
+                          <div
+                            className={`rate-source ${
+                              failed.has(row.key)
+                                ? 'failed'
+                                : source.toLowerCase()
+                            }`}
+                          >
+                            {pending.has(row.key)
+                              ? 'Saving…'
+                              : failed.has(row.key)
+                                ? 'Not saved'
+                                : unpriced
+                                  ? 'Unpriced'
+                                  : source}
+                            {!pending.has(row.key) &&
+                              row.hasTemplate &&
+                              row.item.rateOverride !== undefined && (
+                                <button
+                                  type="button"
+                                  disabled={pending.has(row.key)}
+                                  onClick={() => {
+                                    setDrafts((current) => ({
+                                      ...current,
+                                      [row.key]: '',
+                                    }));
+                                    void saveRow(row, '');
+                                  }}
+                                >
+                                  Use master
+                                </button>
+                              )}
+                          </div>
+                        </td>
+                        <td className="amount-cell">
+                          {unpriced
+                            ? '—'
+                            : inr(itemTotal(previewItem, project.defaultTier))}
+                        </td>
+                      </tr>
+                    )}
                   </Fragment>
                 );
               })}
@@ -5116,6 +5247,12 @@ function Revisions({ s }: { s: Store }) {
                 <Button
                   variant="outline"
                   onClick={() => {
+                    if (
+                      !window.confirm(
+                        `Restore “${r.note?.trim() || `Revision ${r.number}`}”? This replaces the current project with the saved snapshot. Save a revision first if you need to keep your current work.`,
+                      )
+                    )
+                      return;
                     const restored =
                       s.canManageFinancials && r.technicalOnly
                         ? combineProject(
@@ -5217,6 +5354,12 @@ function Revisions({ s }: { s: Store }) {
 }
 function RateCard({ s }: { s: Store }) {
   const [e, setE] = useState<RateCardItem | null>(null);
+  const [search, setSearch] = useState('');
+  const visibleRates = s.rates.filter((rate) =>
+    `${rate.name} ${rate.description}`
+      .toLowerCase()
+      .includes(search.trim().toLowerCase()),
+  );
   function save(ev: React.FormEvent<HTMLFormElement>) {
     ev.preventDefault();
     const f = new FormData(ev.currentTarget),
@@ -5260,6 +5403,19 @@ function RateCard({ s }: { s: Store }) {
             Add item
           </Button>
         </SectionHead>
+        <div className="rate-card-search">
+          <label htmlFor="rate-card-search">Find an item</label>
+          <Input
+            id="rate-card-search"
+            type="search"
+            placeholder="Search by name or description"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+          <small aria-live="polite">
+            {visibleRates.length} of {s.rates.length} items
+          </small>
+        </div>
         <div className="table-wrap">
           <table>
             <thead>
@@ -5273,13 +5429,13 @@ function RateCard({ s }: { s: Store }) {
               </tr>
             </thead>
             <tbody>
-              {s.rates.map((r) => (
+              {visibleRates.map((r) => (
                 <tr key={r.id}>
                   <td>
                     <strong>{r.name}</strong>
                     <small>{r.description}</small>
                   </td>
-                  <td>{r.unit}</td>
+                  <td>{unitForMeasurement(r.unit)}</td>
                   {(['standard', 'premium', 'luxury'] as Tier[]).map((t) => (
                     <td className="num" key={t}>
                       {inr(r.rates[t])}
@@ -5292,6 +5448,13 @@ function RateCard({ s }: { s: Store }) {
                   </td>
                 </tr>
               ))}
+              {!visibleRates.length && (
+                <tr>
+                  <td colSpan={6} className="empty">
+                    No items match “{search}”. Try another name.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -5302,28 +5465,34 @@ function RateCard({ s }: { s: Store }) {
           close={() => setE(null)}
         >
           <form className="form-grid" onSubmit={save}>
-            <label>
+            <label className="wide">
               Item name
               <Input name="name" defaultValue={e.name} required />
+            </label>
+            <label className="wide">
+              Description
+              <textarea
+                name="description"
+                defaultValue={e.description}
+                rows={3}
+              />
             </label>
             <label>
               Unit
               <select name="unit" defaultValue={e.unit}>
-                <option>sqft</option>
-                <option>rft</option>
-                <option>quantity</option>
-                <option>flat</option>
+                <option value="sqft">Square feet (Sq.ft)</option>
+                <option value="rft">Running feet (R.ft)</option>
+                <option value="quantity">Number (Nos)</option>
+                <option value="flat">Lump sum</option>
               </select>
-            </label>
-            <label>
-              Description
-              <Input name="description" defaultValue={e.description} />
             </label>
             {(['standard', 'premium', 'luxury'] as Tier[]).map((t) => (
               <label key={t}>
                 {tl(t)}
                 <Input
                   type="number"
+                  min="0"
+                  step="any"
                   name={t}
                   defaultValue={e.rates[t]}
                   onFocus={(event) => {
@@ -5344,6 +5513,12 @@ function RateCard({ s }: { s: Store }) {
                   type="button"
                   variant="destructive"
                   onClick={() => {
+                    if (
+                      !window.confirm(
+                        `Delete “${e.name}” from the global rate card? Existing project items will not be deleted.`,
+                      )
+                    )
+                      return;
                     s.setRates(s.rates.filter((x) => x.id !== e.id));
                     setE(null);
                   }}
@@ -5417,6 +5592,7 @@ function Fees({ s }: { s: Store }) {
                 <h2>{fee.name}</h2>
               </div>
               <Switch
+                aria-label={`Include ${fee.name}`}
                 checked={fee.enabled}
                 onCheckedChange={(enabled) => patchFee(fee.id, { enabled })}
               />
@@ -5501,6 +5677,14 @@ function Firm({ s }: { s: Store }) {
             />
           </label>
         ))}
+        <label className="wide">
+          Quotation notes
+          <textarea
+            value={x.quotationNotes}
+            onChange={(e) => set({ quotationNotes: e.target.value })}
+          />
+          <small>Included above the terms in Excel exports.</small>
+        </label>
         <label className="wide">
           Terms & conditions
           <textarea
