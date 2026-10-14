@@ -69,7 +69,7 @@ const server = await createServer({
             .replace('if (!firebaseConfigured)', 'if (false)')
             .replace('<WebTool s={s} />', '')
             .replaceAll('Synced to Firebase', 'Local UI review — not synced') +
-          '\nimport { createRoot } from "react-dom/client"; createRoot(document.getElementById("root")!).render(<Home />);'
+          '\nimport { createRoot } from "react-dom/client"; const reviewHost = document.getElementById("root")! as HTMLElement & { reviewRoot?: ReturnType<typeof createRoot> }; reviewHost.reviewRoot ??= createRoot(reviewHost); reviewHost.reviewRoot.render(<Home />);'
         );
       },
       configureServer(server) {
